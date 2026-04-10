@@ -1,0 +1,12 @@
+.foray/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Local-only files
+CLAUDE.md
+2026-04-10-foray-v3-design.md
+docs/
