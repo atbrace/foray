@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from foray.models import RunConfig
+from foray.models import PathStatus, RunConfig
 from foray.orchestrator import Orchestrator
 from foray.state import read_paths, read_run_state
 
@@ -94,8 +94,8 @@ def status():
         sys.exit(1)
     state = read_run_state(foray_dir)
     paths = read_paths(foray_dir)
-    open_n = sum(1 for p in paths if p.status == "open")
-    resolved_n = sum(1 for p in paths if p.status == "resolved")
+    open_n = sum(1 for p in paths if p.status == PathStatus.OPEN)
+    resolved_n = sum(1 for p in paths if p.status == PathStatus.RESOLVED)
     click.echo(f"Experiments: {state.experiment_count}")
     click.echo(f"Round: {state.current_round}")
     click.echo(f"Paths: {open_n} open, {resolved_n} resolved, {len(paths)} total")

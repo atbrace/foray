@@ -137,8 +137,10 @@ def write_crash_stub(
         f"## Stderr\n```\n{dispatch_result.stderr[:2000]}\n```\n\n"
         f"## Original Plan\n{plan_content}\n"
     )
+    from foray.state import _atomic_write
+
     results_path = foray_dir / "experiments" / f"{experiment_id}_results.md"
-    results_path.write_text(stub)
+    _atomic_write(results_path, stub)
 
 
 def parse_experiment_status(results_path: Path) -> ExperimentStatus:

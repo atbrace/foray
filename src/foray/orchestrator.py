@@ -102,6 +102,7 @@ class Orchestrator:
         self.config = config
         self.foray_dir = project_root / config.output_dir
         self.tools = resolve_tools(config.allow_tools, config.deny_tools)
+        self._prompt_cache: dict[str, str] = {}
 
     def init(self) -> Path:
         """Initialize .foray/ directory, dispatch initializer, return foray_dir."""
@@ -352,10 +353,15 @@ class Orchestrator:
                 shutil.copy2(prompt_file, target)
 
     def _load_agent_prompt(self, agent_name: str) -> str:
+        if agent_name in self._prompt_cache:
+            return self._prompt_cache[agent_name]
         local = self.foray_dir / "agents" / f"{agent_name}.md"
         if local.exists():
-            return local.read_text()
-        return (Path(__file__).parent / "agents" / f"{agent_name}.md").read_text()
+            content = local.read_text()
+        else:
+            content = (Path(__file__).parent / "agents" / f"{agent_name}.md").read_text()
+        self._prompt_cache[agent_name] = content
+        return content
 
     def _ensure_gitignore(self) -> None:
         gitignore = self.project_root / ".gitignore"

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 from foray.models import (
     Evaluation,
@@ -48,11 +51,12 @@ def init_directory(project_root: Path, state: RunState) -> Path:
     return foray_dir
 
 
+def _serialize_model_list(items: list) -> str:
+    return json.dumps([item.model_dump(mode="json") for item in items], indent=2)
+
+
 def write_paths(foray_dir: Path, paths: list[PathInfo]) -> None:
-    content = json.dumps(
-        [json.loads(p.model_dump_json()) for p in paths], indent=2
-    )
-    _atomic_write(foray_dir / "state" / "paths.json", content)
+    _atomic_write(foray_dir / "state" / "paths.json", _serialize_model_list(paths))
 
 
 def read_paths(foray_dir: Path) -> list[PathInfo]:
@@ -61,10 +65,7 @@ def read_paths(foray_dir: Path) -> list[PathInfo]:
 
 
 def write_rounds(foray_dir: Path, rounds: list[Round]) -> None:
-    content = json.dumps(
-        [json.loads(r.model_dump_json()) for r in rounds], indent=2
-    )
-    _atomic_write(foray_dir / "state" / "rounds.json", content)
+    _atomic_write(foray_dir / "state" / "rounds.json", _serialize_model_list(rounds))
 
 
 def read_rounds(foray_dir: Path) -> list[Round]:
@@ -73,10 +74,7 @@ def read_rounds(foray_dir: Path) -> list[Round]:
 
 
 def write_findings(foray_dir: Path, findings: list[Finding]) -> None:
-    content = json.dumps(
-        [json.loads(f.model_dump_json()) for f in findings], indent=2
-    )
-    _atomic_write(foray_dir / "state" / "findings.json", content)
+    _atomic_write(foray_dir / "state" / "findings.json", _serialize_model_list(findings))
 
 
 def read_findings(foray_dir: Path) -> list[Finding]:
@@ -109,5 +107,6 @@ def read_evaluation(foray_dir: Path, experiment_id: str) -> Evaluation | None:
         return None
     try:
         return Evaluation.model_validate_json(path.read_text())
-    except (ValidationError, ValueError):
+    except (ValidationError, ValueError) as e:
+        logger.warning(f"Failed to parse evaluation {experiment_id}: {e}")
         return None
