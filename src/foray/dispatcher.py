@@ -146,21 +146,64 @@ def dispatch_executor(
     return result
 
 
+def _classify_failure(
+    dispatch_result: DispatchResult,
+    timeout_minutes: float,
+) -> str:
+    """Classify the failure type based on DispatchResult fields.
+
+    Returns a markdown section with one or more classification lines.
+    """
+    timeout_seconds = timeout_minutes * 60
+    elapsed = dispatch_result.elapsed_seconds
+    exit_code = dispatch_result.exit_code
+    lines: list[str] = []
+
+    if exit_code == -1 or elapsed >= timeout_seconds:
+        lines.append(
+            f"**Hard timeout:** Agent was still working when killed at "
+            f"{elapsed:.1f}s (timeout: {timeout_seconds:.0f}s)"
+        )
+
+    if exit_code != -1 and exit_code != 0 and elapsed < timeout_seconds:
+        lines.append(
+            f"**Early crash:** Agent crashed after "
+            f"{elapsed:.1f}s (exit code {exit_code})"
+        )
+
+    if not dispatch_result.stdout and not dispatch_result.stderr:
+        lines.append(
+            "**No output:** Agent produced no output "
+            "— likely stalled on startup or early tool call"
+        )
+
+    if dispatch_result.stdout:
+        lines.append(
+            f"**Partial output:** Agent produced {len(dispatch_result.stdout)} "
+            f"chars of output but didn't write results"
+        )
+
+    return "\n".join(lines)
+
+
 def write_crash_stub(
     foray_dir: Path,
     experiment_id: str,
     plan_path: Path,
     dispatch_result: DispatchResult,
+    timeout_minutes: float = DEFAULT_TIMEOUT_MINUTES,
 ) -> None:
     """Write CRASH stub when executor dies without producing results."""
     plan_content = plan_path.read_text() if plan_path.exists() else "(plan not found)"
     stdout_tail = dispatch_result.stdout[-3000:] if dispatch_result.stdout else "(empty)"
+    classification = _classify_failure(dispatch_result, timeout_minutes)
     stub = (
         f"## Status\nCRASH\n\n"
         f"## What Happened\n"
         f"The executor process died without writing results.\n\n"
         f"- Exit code: {dispatch_result.exit_code}\n"
         f"- Elapsed: {dispatch_result.elapsed_seconds:.1f}s\n\n"
+        f"## Failure Classification\n{classification}\n\n"
         f"## Stderr\n```\n{dispatch_result.stderr[:2000]}\n```\n\n"
         f"## Agent Output (last 3000 chars)\n```\n{stdout_tail}\n```\n\n"
         f"## Original Plan\n{plan_content}\n"

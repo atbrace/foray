@@ -124,3 +124,91 @@ def test_write_crash_stub(tmp_path):
     assert "CRASH" in stub
     assert "Segfault" in stub
     assert "Do the thing" in stub
+    # With default timeout_minutes=10, elapsed=5.0, exit_code=1 → early crash
+    assert "Early crash" in stub
+    assert "Failure Classification" in stub
+
+
+def test_crash_stub_hard_timeout(tmp_path):
+    """Hard timeout: elapsed >= timeout, exit_code == -1."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nTimeout test")
+
+    dr = DispatchResult(
+        exit_code=-1, stdout="partial work", stderr="", elapsed_seconds=600.2,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Hard timeout" in stub
+    assert "still working when killed" in stub
+    assert "600.2s" in stub
+
+
+def test_crash_stub_early_crash(tmp_path):
+    """Early crash: elapsed < timeout, exit_code nonzero and != -1."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nCrash test")
+
+    dr = DispatchResult(
+        exit_code=1, stdout="some output", stderr="error msg", elapsed_seconds=12.3,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Early crash" in stub
+    assert "crashed after" in stub
+    assert "12.3s" in stub
+    assert "exit code 1" in stub
+
+
+def test_crash_stub_no_output(tmp_path):
+    """No output: empty stdout and empty stderr."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nNo output test")
+
+    dr = DispatchResult(
+        exit_code=1, stdout="", stderr="", elapsed_seconds=3.0,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "No output" in stub
+    assert "stalled on startup" in stub
+
+
+def test_crash_stub_partial_output(tmp_path):
+    """Partial output: has stdout but no results file was written."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nPartial output test")
+
+    dr = DispatchResult(
+        exit_code=1, stdout="I started working on the task...",
+        stderr="something", elapsed_seconds=45.0,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Partial output" in stub
+    assert "chars of output" in stub
+
+
+def test_crash_stub_combined(tmp_path):
+    """Combined: early crash + no output."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nCombined test")
+
+    dr = DispatchResult(
+        exit_code=2, stdout="", stderr="", elapsed_seconds=1.5,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Early crash" in stub
+    assert "No output" in stub
+    assert "Failure Classification" in stub
