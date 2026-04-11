@@ -212,3 +212,35 @@ def test_crash_stub_combined(tmp_path):
     assert "Early crash" in stub
     assert "No output" in stub
     assert "Failure Classification" in stub
+
+
+def test_crash_stub_hard_timeout_with_partial_output(tmp_path):
+    """Hard timeout with stdout should show both Hard timeout and Partial output."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nTimeout test")
+
+    dr = DispatchResult(
+        exit_code=-1, stdout="partial work", stderr="", elapsed_seconds=600.2,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Hard timeout" in stub
+    assert "Partial output" in stub
+
+
+def test_crash_stub_unknown_failure(tmp_path):
+    """exit_code=0, no stdout, has stderr → unknown failure."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nUnknown test")
+
+    dr = DispatchResult(
+        exit_code=0, stdout="", stderr="deprecation warning", elapsed_seconds=30.0,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Unknown failure" in stub
+    assert "exited with code 0" in stub

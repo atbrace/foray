@@ -183,6 +183,12 @@ def _classify_failure(
             f"chars of output but didn't write results"
         )
 
+    if not lines:
+        lines.append(
+            f"**Unknown failure:** Agent exited with code {exit_code} "
+            f"after {elapsed:.1f}s without writing results"
+        )
+
     return "\n".join(lines)
 
 

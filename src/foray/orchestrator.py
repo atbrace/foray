@@ -17,7 +17,6 @@ from foray.context import (
     build_synthesizer_context,
 )
 from foray.dispatcher import (
-    DEFAULT_TIMEOUT_MINUTES,
     dispatch,
     dispatch_executor,
     parse_experiment_status,
@@ -408,7 +407,6 @@ class Orchestrator:
         if not results_path.exists():
             write_crash_stub(
                 self.foray_dir, experiment_id, plan_path, exec_result,
-                timeout_minutes=DEFAULT_TIMEOUT_MINUTES,
             )
 
         exp_status = parse_experiment_status(results_path)
