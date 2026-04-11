@@ -13,6 +13,7 @@ class ExperimentStatus(StrEnum):
     FAILED = "FAILED"
     INFEASIBLE = "INFEASIBLE"
     CRASH = "CRASH"
+    EXHAUSTED = "EXHAUSTED"
 
 
 class PathStatus(StrEnum):

@@ -218,6 +218,10 @@ def test_evaluation_methodology_default():
     assert ev.methodology == ""
 
 
+def test_exhausted_status_exists():
+    assert ExperimentStatus.EXHAUSTED == "EXHAUSTED"
+
+
 def test_evaluation_methodology_null_coercion():
     """methodology: null in JSON coerces to empty string."""
     raw_json = json.dumps({

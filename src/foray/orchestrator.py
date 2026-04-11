@@ -90,6 +90,7 @@ _STATUS_SYMBOLS = {
     "FAILED": "✗",
     "INFEASIBLE": "—",
     "CRASH": "!",
+    "EXHAUSTED": "∅",
 }
 
 
