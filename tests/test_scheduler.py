@@ -155,6 +155,27 @@ def test_consecutive_failures_not_enough():
     assert check_consecutive_failures([_finding("001", "a", ExperimentStatus.FAILED)]) is False
 
 
+def test_exhausted_does_not_trigger_circuit_breaker():
+    findings = [
+        _finding("001", "a", ExperimentStatus.SUCCESS),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+        _finding("003", "a", ExperimentStatus.EXHAUSTED),
+        _finding("004", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert check_consecutive_failures(findings) is False
+
+
+def test_exhausted_does_not_count_toward_path_failure_threshold():
+    findings = [
+        _finding("001", "a", ExperimentStatus.EXHAUSTED),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+        _finding("003", "a", ExperimentStatus.EXHAUSTED),
+        _finding("004", "a", ExperimentStatus.EXHAUSTED),
+        _finding("005", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert check_path_failure_threshold("a", findings) is False
+
+
 # --- experiment ID ---
 
 

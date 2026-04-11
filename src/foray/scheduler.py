@@ -52,7 +52,7 @@ def check_path_failure_threshold(path_id: str, findings: list[Finding]) -> bool:
     last_4 = path_findings[-4:]
     failures = sum(
         1 for f in last_4
-        if f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL)
+        if f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL, ExperimentStatus.EXHAUSTED)
     )
     return failures >= 3
 
@@ -62,7 +62,7 @@ def check_consecutive_failures(findings: list[Finding]) -> bool:
     if len(findings) < 3:
         return False
     return all(
-        f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL)
+        f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL, ExperimentStatus.EXHAUSTED)
         for f in findings[-3:]
     )
 
