@@ -11,20 +11,32 @@ Foray is for questions that need empirical answers -- where you have hypotheses 
 3. **For each path, agents run experiments** -- plan, execute in an isolated worktree, evaluate results (experiments run in parallel, up to `--max-concurrent`)
 4. **A synthesis report** ties everything together when the budget runs out
 
-```
-Vision doc ──► Initializer ──► Paths
-                                 │
-                    ┌────────────┘
-                    ▼
-              ┌─ Planner ──► Experiment Plan
-    Round N ──┤  Executor ──► Results (in worktree)
-              └─ Evaluator ──► Assessment + Path Status
-                    │
-                    ▼
-              Next round (repeat until budget exhausted)
-                    │
-                    ▼
-              Synthesizer ──► Final Report
+```mermaid
+flowchart TD
+    V["Vision"] --> Init["Initializer"]
+    Init --> A["Path A"]
+    Init --> B["Path B"]
+    Init --> C["Path C"]
+
+    subgraph R1 ["Round 1  --  parallel experiments"]
+        A --> A1["Plan > Execute > Evaluate"]
+        B --> B1["Plan > Execute > Evaluate"]
+        C --> C1["Plan > Execute > Evaluate"]
+    end
+
+    B1 -. "resolved" .-> Synth
+    A1 -- "open" --> A2
+    C1 -- "open" --> C2
+
+    subgraph R2 ["Round 2"]
+        A2["Plan > Execute > Evaluate"]
+        C2["Plan > Execute > Evaluate"]
+    end
+
+    A2 -. "resolved" .-> Synth
+    C2 -. "blocked" .-> Synth
+
+    Synth["Synthesizer"] --> Report["Report"]
 ```
 
 Experiments run in isolated git worktrees so agents can make changes freely without affecting your working tree. Destructive git operations (push, branch delete, remote modify) are blocked by a git wrapper.
