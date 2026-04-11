@@ -395,6 +395,8 @@ class Orchestrator:
                     capture = True
                     continue
                 if capture:
+                    if line.startswith("## "):
+                        break
                     rationale_lines.append(line)
             rationale_text = "\n".join(rationale_lines).strip()
 
