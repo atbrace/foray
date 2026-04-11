@@ -49,6 +49,13 @@ Include everything inline: code snippets, data, measurements, errors. Downstream
 
 Do NOT: push to remotes, delete branches, write outside worktree (except results path), install system packages (apt/brew). You CAN install Python packages via `uv pip install` or `uv add`.
 
+### 7. Self-Evaluation Awareness
+
+If you cannot run an experiment through an independent process (e.g., test suite, benchmark, external tool) and must evaluate your own output:
+- Add a `## Methodology Limitation` section to your results explaining why independent measurement was not possible
+- Report **PARTIAL** rather than SUCCESS when the entire experiment relies on your own assessment of quality
+- Be explicit about what was self-assessed vs. independently verified
+
 ## Results Format
 
 ```markdown

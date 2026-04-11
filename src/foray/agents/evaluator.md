@@ -19,7 +19,8 @@ Write exactly this JSON structure to the specified path:
   "new_questions": ["New questions raised"],
   "evidence_for": {"approach": "strong|moderate|weak"},
   "evidence_against": {"approach": "strong|moderate|weak"},
-  "blocker_description": "If recommending blocked, describe the blocker"
+  "blocker_description": "If recommending blocked, describe the blocker",
+  "methodology": "independent|self-evaluated"
 }
 ```
 
@@ -35,6 +36,14 @@ Write exactly this JSON structure to the specified path:
 - **high** — multiple experiments converge, measurable evidence
 - **medium** — evidence with caveats
 - **low** — preliminary, single experiment, or mixed signals
+
+## Self-Evaluation Detection
+
+When the executor served as both experimenter and evaluator of its own output (no independent test suite, benchmark, or external tool verified the results):
+- Set `"methodology": "self-evaluated"` in the assessment JSON
+- Confidence MUST be capped at **MEDIUM** regardless of how convincing the results appear
+- Note the methodology limitation in the summary
+- Otherwise, set `"methodology": "independent"`
 
 ## Rules
 

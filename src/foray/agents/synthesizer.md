@@ -51,3 +51,4 @@ Things that contradicted assumptions.
 - Failures are first-class findings.
 - Read individual results files for detail.
 - Make it scannable and actionable.
+- Findings based on self-evaluated methodology (where the executor assessed its own output without independent verification) should be annotated with lower evidence quality (e.g., "[self-evaluated]" tag or a note).

@@ -200,3 +200,96 @@ def test_path_info_null_blocker_from_json():
     path = PathInfo.model_validate_json(raw_json)
     assert path.topic_tags == []
     assert path.blocker_description == ""
+
+
+# --- Evaluation methodology field tests ---
+
+
+def test_evaluation_methodology_default():
+    """methodology defaults to empty string when not provided."""
+    ev = Evaluation(
+        experiment_id="001",
+        path_id="test",
+        outcome="conclusive",
+        path_status=PathStatus.RESOLVED,
+        confidence=Confidence.HIGH,
+        summary="Test",
+    )
+    assert ev.methodology == ""
+
+
+def test_evaluation_methodology_null_coercion():
+    """methodology: null in JSON coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "test",
+        "outcome": "conclusive",
+        "path_status": "resolved",
+        "confidence": "high",
+        "summary": "Test",
+        "methodology": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.methodology == ""
+
+
+def test_evaluation_methodology_roundtrip():
+    """methodology: 'self-evaluated' round-trips correctly."""
+    ev = Evaluation(
+        experiment_id="001",
+        path_id="test",
+        outcome="conclusive",
+        path_status=PathStatus.RESOLVED,
+        confidence=Confidence.MEDIUM,
+        summary="Test",
+        methodology="self-evaluated",
+    )
+    data = json.loads(ev.model_dump_json())
+    assert data["methodology"] == "self-evaluated"
+    restored = Evaluation.model_validate_json(ev.model_dump_json())
+    assert restored.methodology == "self-evaluated"
+
+
+def test_evaluation_methodology_missing_from_json():
+    """methodology key entirely absent from JSON defaults to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "test",
+        "outcome": "conclusive",
+        "path_status": "resolved",
+        "confidence": "high",
+        "summary": "Test",
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.methodology == ""
+
+
+def test_evaluation_self_eval_caps_confidence():
+    """Self-evaluated methodology caps confidence at MEDIUM."""
+    raw_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "test",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "high",
+        "summary": "Test",
+        "methodology": "self-evaluated",
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.confidence == Confidence.MEDIUM
+    assert ev.methodology == "self-evaluated"
+
+
+def test_evaluation_independent_keeps_high_confidence():
+    """Independent methodology does not cap confidence."""
+    raw_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "test",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "high",
+        "summary": "Test",
+        "methodology": "independent",
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.confidence == Confidence.HIGH
