@@ -13,6 +13,8 @@ from foray.models import (
 
 PRIORITY_ORDER = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
 
+NON_FAILURE_STATUSES = (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL, ExperimentStatus.EXHAUSTED)
+
 
 def get_round_paths(paths: list[PathInfo]) -> list[str]:
     """Get open path IDs ordered by priority for the next round."""
@@ -52,7 +54,7 @@ def check_path_failure_threshold(path_id: str, findings: list[Finding]) -> bool:
     last_4 = path_findings[-4:]
     failures = sum(
         1 for f in last_4
-        if f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL, ExperimentStatus.EXHAUSTED)
+        if f.status not in NON_FAILURE_STATUSES
     )
     return failures >= 3
 
@@ -62,7 +64,7 @@ def check_consecutive_failures(findings: list[Finding]) -> bool:
     if len(findings) < 3:
         return False
     return all(
-        f.status not in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL, ExperimentStatus.EXHAUSTED)
+        f.status not in NON_FAILURE_STATUSES
         for f in findings[-3:]
     )
 

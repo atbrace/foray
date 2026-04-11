@@ -236,8 +236,9 @@ def parse_experiment_status(results_path: Path) -> ExperimentStatus:
         return ExperimentStatus.CRASH
 
     for line in results_path.read_text().splitlines():
-        stripped = line.strip()
-        if stripped in ("SUCCESS", "PARTIAL", "FAILED", "INFEASIBLE", "CRASH", "EXHAUSTED"):
-            return ExperimentStatus(stripped)
+        try:
+            return ExperimentStatus(line.strip())
+        except ValueError:
+            continue
 
     return ExperimentStatus.CRASH

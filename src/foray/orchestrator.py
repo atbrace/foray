@@ -20,7 +20,6 @@ from foray.context import (
 from foray.dispatcher import (
     dispatch,
     dispatch_executor,
-    is_exhaustion_plan,
     parse_experiment_status,
     write_crash_stub,
 )
@@ -384,10 +383,10 @@ class Orchestrator:
                 )
 
         # --- Check for exhaustion signal ---
-        if is_exhaustion_plan(plan_path):
+        plan_content = plan_path.read_text()
+        if any(line.strip() == "## Status: EXHAUSTED" for line in plan_content.splitlines()[:5]):
             _log(f"    {experiment_id} planner signaled exhaustion — routing to evaluator", self._run_start)
-            # Parse rationale from the exhaustion plan
-            lines = plan_path.read_text().split("\n")
+            lines = plan_content.split("\n")
             rationale_lines = []
             capture = False
             for line in lines:
