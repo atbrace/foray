@@ -220,6 +220,16 @@ def write_crash_stub(
     _atomic_write(results_path, stub)
 
 
+def is_exhaustion_plan(plan_path: Path) -> bool:
+    """Check if a plan file is an exhaustion signal rather than an experiment plan."""
+    if not plan_path.exists():
+        return False
+    for line in plan_path.read_text().splitlines()[:5]:
+        if line.strip() == "## Status: EXHAUSTED":
+            return True
+    return False
+
+
 def parse_experiment_status(results_path: Path) -> ExperimentStatus:
     """Parse Status header from experiment results file."""
     if not results_path.exists():
@@ -227,7 +237,7 @@ def parse_experiment_status(results_path: Path) -> ExperimentStatus:
 
     for line in results_path.read_text().splitlines():
         stripped = line.strip()
-        if stripped in ("SUCCESS", "PARTIAL", "FAILED", "INFEASIBLE", "CRASH"):
+        if stripped in ("SUCCESS", "PARTIAL", "FAILED", "INFEASIBLE", "CRASH", "EXHAUSTED"):
             return ExperimentStatus(stripped)
 
     return ExperimentStatus.CRASH

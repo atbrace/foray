@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from foray.dispatcher import (
     dispatch,
+    is_exhaustion_plan,
     parse_experiment_status,
     write_crash_stub,
 )
@@ -244,3 +245,20 @@ def test_crash_stub_unknown_failure(tmp_path):
     stub = (tmp_path / "experiments" / "001_results.md").read_text()
     assert "Unknown failure" in stub
     assert "exited with code 0" in stub
+
+
+def test_exhaustion_plan_detected(tmp_path):
+    plan = tmp_path / "plan.md"
+    plan.write_text("## Status: EXHAUSTED\n\n## Rationale\nPath fully explored.\n")
+    assert is_exhaustion_plan(plan) is True
+
+
+def test_normal_plan_not_detected_as_exhaustion(tmp_path):
+    plan = tmp_path / "plan.md"
+    plan.write_text("# Experiment 029: Test something\n\n## Hypothesis\nStuff works.\n")
+    assert is_exhaustion_plan(plan) is False
+
+
+def test_missing_plan_not_detected_as_exhaustion(tmp_path):
+    plan = tmp_path / "nonexistent.md"
+    assert is_exhaustion_plan(plan) is False
