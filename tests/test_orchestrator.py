@@ -188,3 +188,81 @@ def test_evaluator_failure_logs_diagnostics(
     assert any("Evaluator produced no assessment for 001" in m for m in warning_msgs)
     assert any("exit=1" in m for m in warning_msgs)
     assert any("model overloaded error" in m for m in warning_msgs)
+
+
+# --- Synthesis on early termination (GH-17) ---
+
+
+@patch("foray.orchestrator.Orchestrator._run_synthesis")
+@patch("foray.orchestrator.read_findings")
+@patch("foray.orchestrator.read_paths")
+@patch("foray.orchestrator.read_run_state")
+@patch("foray.orchestrator.check_consecutive_failures")
+def test_synthesis_runs_after_circuit_breaker(
+    mock_circuit, mock_read_state, mock_read_paths, mock_read_findings, mock_synth, tmp_path,
+):
+    """Synthesis must run even when circuit breaker fires."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config, experiment_count=5)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+
+    mock_read_state.return_value = state
+    mock_read_paths.return_value = [_path()]
+    mock_read_findings.return_value = [_finding("001", "a")]
+    mock_circuit.return_value = True  # circuit breaker fires
+
+    orch.run()
+    mock_synth.assert_called_once()
+
+
+@patch("foray.orchestrator.Orchestrator._run_synthesis")
+@patch("foray.orchestrator.Orchestrator._apply_experiment_result")
+@patch("foray.orchestrator.Orchestrator._run_experiment")
+@patch("foray.orchestrator.read_findings")
+@patch("foray.orchestrator.read_paths")
+@patch("foray.orchestrator.read_run_state")
+@patch("foray.orchestrator.read_rounds")
+@patch("foray.orchestrator.write_run_state")
+@patch("foray.orchestrator.write_rounds")
+@patch("foray.orchestrator.should_continue")
+@patch("foray.orchestrator.check_consecutive_failures")
+@patch("foray.orchestrator.get_round_paths")
+def test_synthesis_runs_after_exception_in_merge(
+    mock_get_round, mock_circuit, mock_should_continue,
+    mock_write_rounds, mock_write_state, mock_read_rounds,
+    mock_read_state, mock_read_paths, mock_read_findings,
+    mock_run_exp, mock_apply, mock_synth, tmp_path,
+):
+    """Synthesis must run even when an exception occurs during merge phase."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config, experiment_count=0)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    mock_read_state.return_value = state
+    mock_read_paths.return_value = [_path()]
+    mock_read_findings.return_value = []
+    mock_should_continue.return_value = True
+    mock_circuit.return_value = False
+    mock_get_round.return_value = ["a"]
+    mock_read_rounds.return_value = []
+
+    result = ExperimentResult(
+        experiment_id="001", path_id="a", exp_status=ExperimentStatus.SUCCESS,
+        finding=_finding("001", "a"),
+    )
+    mock_run_exp.return_value = result
+    mock_apply.side_effect = RuntimeError("State corruption")
+
+    # The exception should propagate, but synthesis must still run
+    try:
+        orch.run()
+    except RuntimeError:
+        pass
+    mock_synth.assert_called_once()

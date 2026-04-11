@@ -211,119 +211,120 @@ class Orchestrator:
         if not hasattr(self, "_run_start"):
             self._run_start = time.monotonic()
 
-        while True:
-            state = read_run_state(self.foray_dir)
-            paths = read_paths(self.foray_dir)
-            findings = read_findings(self.foray_dir)
+        try:
+            while True:
+                state = read_run_state(self.foray_dir)
+                paths = read_paths(self.foray_dir)
+                findings = read_findings(self.foray_dir)
 
-            if not should_continue(state, paths, (self.foray_dir / ".stop").exists()):
-                break
-            if check_consecutive_failures(findings):
-                _log("Circuit breaker: 3 consecutive failures — stopping early",
-                     self._run_start)
-                break
+                if not should_continue(state, paths, (self.foray_dir / ".stop").exists()):
+                    break
+                if check_consecutive_failures(findings):
+                    _log("Circuit breaker: 3 consecutive failures — stopping early",
+                         self._run_start)
+                    break
 
-            round_paths = get_round_paths(paths)
-            if not round_paths:
-                break
+                round_paths = get_round_paths(paths)
+                if not round_paths:
+                    break
 
-            round_num = state.current_round + 1
+                round_num = state.current_round + 1
 
-            # Trim to remaining budget
-            remaining_budget = state.config.max_experiments - state.experiment_count
-            round_paths = round_paths[:remaining_budget]
+                # Trim to remaining budget
+                remaining_budget = state.config.max_experiments - state.experiment_count
+                round_paths = round_paths[:remaining_budget]
 
-            open_n = sum(1 for p in paths if p.status == PathStatus.OPEN)
-            _log(
-                f"Round {round_num}: {len(round_paths)} experiment(s), "
-                f"{open_n} path(s) open, "
-                f"{state.experiment_count}/{state.config.max_experiments} budget used",
-                self._run_start,
-            )
-            current_round = Round(
-                round_number=round_num,
-                paths=round_paths,
-                started_at=datetime.now(timezone.utc),
-            )
-
-            # Pre-assign experiment IDs
-            base_count = state.experiment_count
-            experiments_to_run: list[tuple[str, PathInfo]] = []
-            for i, path_id in enumerate(round_paths):
-                path = next(p for p in paths if p.id == path_id)
-                experiment_id = next_experiment_id(base_count + i)
-                experiments_to_run.append((experiment_id, path))
-                _log(f"  {experiment_id} | path: {path_id}")
-
-            state.current_round = round_num
-            write_run_state(self.foray_dir, state)
-
-            # Pre-warm prompt cache
-            for name in ("planner", "executor", "evaluator"):
-                self._load_agent_prompt(name)
-
-            # Phase 1: Parallel dispatch
-            findings_snapshot = list(findings)
-            state_snapshot = state
-            results: list[ExperimentResult] = []
-
-            max_workers = min(len(experiments_to_run), self.config.max_concurrent)
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {
-                    pool.submit(
-                        self._run_experiment, path, exp_id,
-                        list(findings_snapshot), state_snapshot,
-                    ): (exp_id, path.id)
-                    for exp_id, path in experiments_to_run
-                }
-                for future in as_completed(futures):
-                    exp_id, path_id = futures[future]
-                    try:
-                        results.append(future.result())
-                    except Exception as exc:
-                        logger.error(f"Unexpected error in {exp_id}: {exc}")
-                        results.append(_crash_result(exp_id, path_id, f"Unhandled: {exc}"))
-
-            # Sort by experiment_id for deterministic merge order
-            results.sort(key=lambda r: r.experiment_id)
-
-            # Phase 2: Sequential merge
-            for result in results:
-                updated_path = self._apply_experiment_result(result)
-                current_path = updated_path or next(
-                    (p for p in read_paths(self.foray_dir) if p.id == result.path_id), None
+                open_n = sum(1 for p in paths if p.status == PathStatus.OPEN)
+                _log(
+                    f"Round {round_num}: {len(round_paths)} experiment(s), "
+                    f"{open_n} path(s) open, "
+                    f"{state.experiment_count}/{state.config.max_experiments} budget used",
+                    self._run_start,
                 )
-                current_round.outcomes.append(RoundOutcome(
-                    path_id=result.path_id,
-                    experiment_id=result.experiment_id,
-                    status=result.exp_status,
-                    path_status_after=current_path.status if current_path else PathStatus.OPEN,
-                ))
+                current_round = Round(
+                    round_number=round_num,
+                    paths=round_paths,
+                    started_at=datetime.now(timezone.utc),
+                )
 
-                symbol = _STATUS_SYMBOLS.get(result.exp_status.value, "?")
-                status_change = ""
-                if current_path and current_path.status != PathStatus.OPEN:
-                    status_change = f" → path {current_path.status.value}"
-                _log(f"  {result.experiment_id} | {symbol} {result.exp_status.value}{status_change}",
-                     self._run_start)
+                # Pre-assign experiment IDs
+                base_count = state.experiment_count
+                experiments_to_run: list[tuple[str, PathInfo]] = []
+                for i, path_id in enumerate(round_paths):
+                    path = next(p for p in paths if p.id == path_id)
+                    experiment_id = next_experiment_id(base_count + i)
+                    experiments_to_run.append((experiment_id, path))
+                    _log(f"  {experiment_id} | path: {path_id}")
 
-                all_findings = read_findings(self.foray_dir)
-                if check_path_failure_threshold(result.path_id, all_findings):
-                    _log(f"  {result.path_id}: hit failure threshold — marking blocked")
-                    paths_now = read_paths(self.foray_dir)
-                    write_paths(self.foray_dir, [
-                        p.model_copy(update={"status": PathStatus.BLOCKED})
-                        if p.id == result.path_id else p
-                        for p in paths_now
-                    ])
+                state.current_round = round_num
+                write_run_state(self.foray_dir, state)
 
-            current_round.completed_at = datetime.now(timezone.utc)
-            rounds = read_rounds(self.foray_dir)
-            rounds.append(current_round)
-            write_rounds(self.foray_dir, rounds)
-            logger.info(f"Round {round_num} complete: {len(round_paths)} experiments")
+                # Pre-warm prompt cache
+                for name in ("planner", "executor", "evaluator"):
+                    self._load_agent_prompt(name)
 
-        self._run_synthesis()
+                # Phase 1: Parallel dispatch
+                findings_snapshot = list(findings)
+                state_snapshot = state
+                results: list[ExperimentResult] = []
+
+                max_workers = min(len(experiments_to_run), self.config.max_concurrent)
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures = {
+                        pool.submit(
+                            self._run_experiment, path, exp_id,
+                            list(findings_snapshot), state_snapshot,
+                        ): (exp_id, path.id)
+                        for exp_id, path in experiments_to_run
+                    }
+                    for future in as_completed(futures):
+                        exp_id, path_id = futures[future]
+                        try:
+                            results.append(future.result())
+                        except Exception as exc:
+                            logger.error(f"Unexpected error in {exp_id}: {exc}")
+                            results.append(_crash_result(exp_id, path_id, f"Unhandled: {exc}"))
+
+                # Sort by experiment_id for deterministic merge order
+                results.sort(key=lambda r: r.experiment_id)
+
+                # Phase 2: Sequential merge
+                for result in results:
+                    updated_path = self._apply_experiment_result(result)
+                    current_path = updated_path or next(
+                        (p for p in read_paths(self.foray_dir) if p.id == result.path_id), None
+                    )
+                    current_round.outcomes.append(RoundOutcome(
+                        path_id=result.path_id,
+                        experiment_id=result.experiment_id,
+                        status=result.exp_status,
+                        path_status_after=current_path.status if current_path else PathStatus.OPEN,
+                    ))
+
+                    symbol = _STATUS_SYMBOLS.get(result.exp_status.value, "?")
+                    status_change = ""
+                    if current_path and current_path.status != PathStatus.OPEN:
+                        status_change = f" → path {current_path.status.value}"
+                    _log(f"  {result.experiment_id} | {symbol} {result.exp_status.value}{status_change}",
+                         self._run_start)
+
+                    all_findings = read_findings(self.foray_dir)
+                    if check_path_failure_threshold(result.path_id, all_findings):
+                        _log(f"  {result.path_id}: hit failure threshold — marking blocked")
+                        paths_now = read_paths(self.foray_dir)
+                        write_paths(self.foray_dir, [
+                            p.model_copy(update={"status": PathStatus.BLOCKED})
+                            if p.id == result.path_id else p
+                            for p in paths_now
+                        ])
+
+                current_round.completed_at = datetime.now(timezone.utc)
+                rounds = read_rounds(self.foray_dir)
+                rounds.append(current_round)
+                write_rounds(self.foray_dir, rounds)
+                logger.info(f"Round {round_num} complete: {len(round_paths)} experiments")
+        finally:
+            self._run_synthesis()
 
     def _run_experiment(
         self, path: PathInfo, experiment_id: str, findings: list[Finding],
