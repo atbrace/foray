@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -46,20 +47,36 @@ def dispatch(
         proc_env.update(env)
 
     start = time.monotonic()
+
+    # Use Popen + temp files instead of subprocess.run(capture_output=True)
+    # so we capture partial stdout/stderr even when the process is killed
+    # on timeout. subprocess.run loses all output on TimeoutExpired.
+    stdout_fd, stdout_path = tempfile.mkstemp(suffix=".stdout")
+    stderr_fd, stderr_path = tempfile.mkstemp(suffix=".stderr")
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            timeout=timeout_minutes * 60,
-            env=proc_env,
-        )
+        with os.fdopen(stdout_fd, "w") as stdout_f, os.fdopen(stderr_fd, "w") as stderr_f:
+            proc = subprocess.Popen(
+                cmd, cwd=workdir, stdout=stdout_f, stderr=stderr_f,
+                text=True, env=proc_env,
+            )
+            try:
+                proc.wait(timeout=timeout_minutes * 60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
         elapsed = time.monotonic() - start
+        stdout_text = Path(stdout_path).read_text()
+        stderr_text = Path(stderr_path).read_text()
+        timed_out = proc.returncode == -9 or proc.returncode is None
+
+        if timed_out:
+            logger.warning(f"Agent timed out after {elapsed:.0f}s")
+
         return DispatchResult(
-            exit_code=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            exit_code=-1 if timed_out else proc.returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
             elapsed_seconds=elapsed,
             results_file_path=(
                 str(results_file)
@@ -67,16 +84,12 @@ def dispatch(
                 else None
             ),
         )
-    except subprocess.TimeoutExpired as e:
-        elapsed = time.monotonic() - start
-        logger.warning(f"Agent timed out after {elapsed:.0f}s")
-        return DispatchResult(
-            exit_code=-1,
-            stdout=e.stdout or "",
-            stderr=e.stderr or "",
-            elapsed_seconds=elapsed,
-            results_file_path=None,
-        )
+    finally:
+        for p in (stdout_path, stderr_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 def dispatch_executor(

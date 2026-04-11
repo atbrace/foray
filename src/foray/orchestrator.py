@@ -423,7 +423,6 @@ class Orchestrator:
             model=self.config.evaluator_model,
             max_turns=6,
             tools=["Read", "Write"],
-            timeout_minutes=15,
         )
 
         assessment = read_evaluation(self.foray_dir, experiment_id)
