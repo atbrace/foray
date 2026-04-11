@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from foray.context import (
+    BUDGETS,
     build_evaluator_context,
     build_executor_context,
     build_planner_context,
@@ -177,4 +178,129 @@ def test_synthesizer_context(tmp_path: Path):
 
     ctx = build_synthesizer_context(tmp_path)
     assert "Test vision" in ctx
-    assert "All Findings" in ctx
+    assert "Findings by Path" in ctx
+
+
+# --- #3: Progressive summarization for synthesizer context ---
+
+
+def test_synthesizer_progressive_summarization(tmp_path: Path):
+    """Synthesizer groups findings by path, recent get full summaries, older get one-liners."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "state").mkdir()
+
+    findings = []
+    for i in range(1, 8):
+        findings.append(Finding(
+            experiment_id=f"{i:03d}", path_id="path-a",
+            status=ExperimentStatus.SUCCESS,
+            summary=f"Full summary for experiment {i:03d}",
+            one_liner=f"One-liner for {i:03d}",
+        ))
+    findings.append(Finding(
+        experiment_id="008", path_id="path-b",
+        status=ExperimentStatus.SUCCESS,
+        summary="Full summary for experiment 008 on path-b",
+        one_liner="One-liner for 008",
+    ))
+
+    from foray.state import write_findings, write_paths
+    write_findings(tmp_path, findings)
+
+    paths = [_path("path-a"), _path("path-b")]
+    write_paths(tmp_path, paths)
+
+    ctx = build_synthesizer_context(tmp_path)
+
+    # path-a has 7 findings: latest 3 (005, 006, 007) get full summaries
+    assert "Full summary for experiment 005" in ctx
+    assert "Full summary for experiment 006" in ctx
+    assert "Full summary for experiment 007" in ctx
+
+    # Older path-a findings (001-004) get one-liners only
+    assert "One-liner for 001" in ctx
+    assert "One-liner for 002" in ctx
+    assert "Full summary for experiment 001" not in ctx
+
+    # path-b has 1 finding: it's "recent" so gets full summary
+    assert "Full summary for experiment 008 on path-b" in ctx
+
+
+# --- #4: Budget enforcement with truncation ---
+
+
+def test_planner_context_truncation(tmp_path: Path):
+    """Planner context truncates oldest findings when over budget."""
+    (tmp_path / "vision.md").write_text("V")
+    (tmp_path / "experiments").mkdir()
+
+    # Create many findings with long summaries to exceed budget
+    findings = [
+        Finding(
+            experiment_id=f"{i:03d}", path_id="path-a",
+            status=ExperimentStatus.SUCCESS,
+            summary="x " * 5000,  # ~6500 tokens each
+            one_liner=f"Short {i:03d}",
+            planner_brief="x " * 5000,
+        )
+        for i in range(1, 20)
+    ]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    tokens = estimate_tokens(ctx)
+    assert tokens <= BUDGETS["planner"], f"Planner context ({tokens}) exceeds budget ({BUDGETS['planner']})"
+
+
+def test_executor_context_truncation(tmp_path: Path):
+    """Executor context truncates codebase map when over budget."""
+    plan_path = tmp_path / "plan.md"
+    plan_path.write_text("# Plan\nDo the thing")
+    (tmp_path / "codebase_map.md").write_text("x " * 50000)
+
+    ctx = build_executor_context(tmp_path, plan_path)
+    tokens = estimate_tokens(ctx)
+    assert tokens <= BUDGETS["executor"], f"Executor context ({tokens}) exceeds budget ({BUDGETS['executor']})"
+    # Plan is preserved, map is truncated
+    assert "Do the thing" in ctx
+
+
+def test_evaluator_context_truncation(tmp_path: Path):
+    """Evaluator context truncates oldest assessments when over budget."""
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "010_results.md").write_text("## Status\nSUCCESS\n\nResults")
+
+    # Create many assessment files with large content
+    findings = []
+    for i in range(1, 10):
+        findings.append(_finding(f"{i:03d}", "path-a"))
+        (tmp_path / "experiments" / f"{i:03d}_eval.json").write_text("x " * 10000)
+
+    ctx = build_evaluator_context(tmp_path, "010", _path(), findings)
+    tokens = estimate_tokens(ctx)
+    assert tokens <= BUDGETS["evaluator"], f"Evaluator context ({tokens}) exceeds budget ({BUDGETS['evaluator']})"
+    # Results for the current experiment are preserved
+    assert "Results" in ctx
+
+
+def test_synthesizer_context_truncation(tmp_path: Path):
+    """Synthesizer context stays within budget even with many findings."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "state").mkdir()
+
+    findings = [
+        Finding(
+            experiment_id=f"{i:03d}", path_id=f"path-{i % 3}",
+            status=ExperimentStatus.SUCCESS,
+            summary="x " * 2000,
+            one_liner=f"Short {i:03d}",
+        )
+        for i in range(1, 60)
+    ]
+
+    from foray.state import write_findings, write_paths
+    write_findings(tmp_path, findings)
+    write_paths(tmp_path, [_path("path-0"), _path("path-1"), _path("path-2")])
+
+    ctx = build_synthesizer_context(tmp_path)
+    tokens = estimate_tokens(ctx)
+    assert tokens <= BUDGETS["synthesizer"], f"Synthesizer context ({tokens}) exceeds budget ({BUDGETS['synthesizer']})"
