@@ -410,23 +410,27 @@ class Orchestrator:
         exp_status = parse_experiment_status(results_path)
 
         # --- Assess ---
-        _log(f"    {experiment_id} evaluating...", self._run_start)
-        assessor_template = self._load_agent_prompt("evaluator")
-        assessor_ctx = build_evaluator_context(self.foray_dir, experiment_id, path, path_findings)
-        assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
-        dispatch(
-            prompt=(
-                f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
-                f"Write assessment JSON to: {assessment_path}"
-            ),
-            workdir=self.project_root,
-            model=self.config.evaluator_model,
-            max_turns=6,
-            tools=["Read", "Write"],
-        )
-
-        assessment = read_evaluation(self.foray_dir, experiment_id)
-        finding_summary = assessment.summary if assessment else "(assessment failed)"
+        assessment = None
+        if exp_status == ExperimentStatus.CRASH:
+            _log(f"    {experiment_id} skipping evaluation (executor crashed)", self._run_start)
+            finding_summary = "Executor crashed — no results to evaluate"
+        else:
+            _log(f"    {experiment_id} evaluating...", self._run_start)
+            assessor_template = self._load_agent_prompt("evaluator")
+            assessor_ctx = build_evaluator_context(self.foray_dir, experiment_id, path, path_findings)
+            assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
+            dispatch(
+                prompt=(
+                    f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
+                    f"Write assessment JSON to: {assessment_path}"
+                ),
+                workdir=self.project_root,
+                model=self.config.evaluator_model,
+                max_turns=6,
+                tools=["Read", "Write"],
+            )
+            assessment = read_evaluation(self.foray_dir, experiment_id)
+            finding_summary = assessment.summary if assessment else "(assessment failed)"
 
         # Worktree cleanup
         copy_artifacts(worktree_path, artifacts_dir)
