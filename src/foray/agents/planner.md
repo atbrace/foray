@@ -46,6 +46,26 @@ Measurable indicators of success.
 What the results file should contain.
 ```
 
+## Output: Exhaustion Signal
+
+If after reviewing all prior experiments there is genuinely no viable next experiment — not because of a blocker, but because the path has been thoroughly explored — write this instead of an experiment plan:
+
+```markdown
+## Status: EXHAUSTED
+
+## Rationale
+[2-3 sentences explaining why no further experiments are viable. Reference the specific experiments that covered the key questions and what gap, if any, remains untestable within the executor's capabilities.]
+```
+
+Use this ONLY when:
+- Prior experiments have converged on clear answers
+- Remaining open questions cannot be tested within the executor's capabilities (e.g., requires real user data, hardware access, or production environment)
+- A different approach would just repeat prior work
+
+Do NOT use this when:
+- There's a technical blocker (use a plan that diagnoses the blocker instead)
+- You can think of any experiment, even a small one, that would produce new evidence
+
 ## Evidence Quality
 
 Prefer experiments that produce **independently measurable artifacts** over self-evaluation:
