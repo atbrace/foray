@@ -10,15 +10,18 @@ Foray is an autonomous exploration tool that dispatches Claude Code CLI agents t
 
 ## Status
 
-v0.1.0 — fully implemented and installed globally (`foray` on PATH via `uv tool install`).
+v0.2.0 — fully implemented and installed globally (`foray` on PATH via `uv tool install`).
 
-84 tests passing across 11 test modules. All modules from the implementation plan are complete.
+101 tests passing across 13 test modules. All modules from the implementation plan are complete. Experiments within rounds now run in parallel via `ThreadPoolExecutor`.
 
 ## Quick Start
 
 ```bash
 # From any project directory:
 foray run --question "What testing patterns does this codebase use?" --hours 0.5 --max-experiments 3
+
+# Control parallelism (default: 3 concurrent experiments per round):
+foray run --question "..." --max-concurrent 5
 
 # Or with a vision document:
 foray run --vision VISION.md --hours 8
@@ -39,23 +42,26 @@ Requires `claude` CLI installed and authenticated (dispatches agents via `claude
 
 ```
 src/foray/
-├── models.py        # Pydantic models: PathInfo, Round, Finding, Evaluation, RunState, etc.
+├── models.py        # Pydantic models: PathInfo, Round, Finding, Evaluation, RunState, ExperimentResult, etc.
 │                    # PathInfo and Evaluation extend _AgentOutput (coerces null → defaults)
 ├── state.py         # Atomic JSON read/write, .foray/ directory initialization
 ├── permissions.py   # Default tool list + --allow/--deny resolution
 ├── scheduler.py     # Round-robin path assignment, concentration detection, circuit breakers
 ├── worktree.py      # Git worktree create/cleanup/preserve, git wrapper, integrity checks
 │                    # create_worktree prunes stale git references before creating
+│                    # threading.Lock serializes git worktree operations for concurrency
 ├── context.py       # Progressive summarization, scoped context per agent type, token estimation
+│                    # Budget enforcement: truncates content when exceeding per-agent token limits
 ├── dispatcher.py    # Claude Code CLI subprocess invocation, timeout, crash stubs
 │                    # Crash stubs capture agent stdout for diagnostics
 ├── orchestrator.py  # Main loop: init → rounds → synthesis, state transition guardrails
-│                    # Timestamped progress output at every stage transition
+│                    # Two-phase rounds: parallel dispatch (ThreadPoolExecutor) → sequential merge
+│                    # Timestamped thread-safe progress output at every stage transition
 ├── cli.py           # Click CLI: run, report, status, resume commands
 └── agents/          # Bundled agent prompt markdown files
     ├── initializer.md   # Shallow codebase scan, 3-5 focused paths
-    ├── planner.md
-    ├── executor.md
+    ├── planner.md       # Includes mandatory Research Phase gate before implementation
+    ├── executor.md      # Enforces research gate: INFEASIBLE + stop if hypothesis disproved
     ├── evaluator.md     # Runs on Opus (evaluator_model) by default
     └── synthesizer.md
 ```
