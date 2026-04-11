@@ -1,4 +1,6 @@
-# Foray
+<p align="center">
+  <img src="foray_banner.png" alt="foray" width="600">
+</p>
 
 Autonomous exploration tool that dispatches Claude Code agents to run experiments in isolated git worktrees and produces a synthesis report. Point it at a codebase with a question, run it overnight, come back to findings.
 
