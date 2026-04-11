@@ -25,10 +25,11 @@ def main():
 @click.option("--model", type=str, default="claude-sonnet-4-6", show_default=True)
 @click.option("--evaluator-model", type=str, default="claude-opus-4-6", show_default=True, help="Model for evaluator agent")
 @click.option("--max-turns", type=int, default=30, show_default=True)
+@click.option("--max-concurrent", type=int, default=3, show_default=True, help="Max parallel experiments per round")
 @click.option("--output", type=str, default=".foray/", show_default=True, help="Output directory")
 @click.option("--allow", multiple=True, help="Additional tools to enable")
 @click.option("--deny", multiple=True, help="Tools to disable")
-def run(vision, question, hours, max_experiments, model, evaluator_model, max_turns, output, allow, deny):
+def run(vision, question, hours, max_experiments, model, evaluator_model, max_turns, max_concurrent, output, allow, deny):
     """Start an exploration run."""
     project_root = Path.cwd()
 
@@ -52,6 +53,7 @@ def run(vision, question, hours, max_experiments, model, evaluator_model, max_tu
         output_dir=output,
         allow_tools=list(allow),
         deny_tools=list(deny),
+        max_concurrent=max_concurrent,
     )
 
     orchestrator = Orchestrator(project_root, config)

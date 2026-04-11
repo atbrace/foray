@@ -114,6 +114,7 @@ class RunConfig(BaseModel):
     output_dir: str = ".foray/"
     allow_tools: list[str] = Field(default_factory=list)
     deny_tools: list[str] = Field(default_factory=list)
+    max_concurrent: int = 3
 
 
 class RunState(BaseModel):
@@ -131,3 +132,12 @@ class DispatchResult(BaseModel):
     stderr: str
     elapsed_seconds: float
     results_file_path: str | None = None
+
+
+class ExperimentResult(BaseModel):
+    """Carries outputs from one experiment for deferred state mutation."""
+    experiment_id: str
+    path_id: str
+    exp_status: ExperimentStatus
+    finding: Finding
+    assessment: Evaluation | None = None

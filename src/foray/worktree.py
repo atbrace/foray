@@ -4,9 +4,12 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from foray.models import ExperimentStatus
+
+_git_worktree_lock = threading.Lock()
 
 
 def create_worktree(project_root: Path, experiment_id: str, foray_dir: Path) -> Path:
@@ -14,42 +17,44 @@ def create_worktree(project_root: Path, experiment_id: str, foray_dir: Path) -> 
     worktree_path = foray_dir / "worktrees" / f"exp-{experiment_id}"
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Clean up any stale state — the directory may be gone (rm -rf .foray)
-    # while git still has the worktree registered, or both may exist from
-    # a killed run.
-    if worktree_path.exists():
+    with _git_worktree_lock:
+        # Clean up any stale state — the directory may be gone (rm -rf .foray)
+        # while git still has the worktree registered, or both may exist from
+        # a killed run.
+        if worktree_path.exists():
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree_path)],
+                cwd=project_root,
+                capture_output=True,
+            )
+            if worktree_path.exists():
+                shutil.rmtree(worktree_path, ignore_errors=True)
         subprocess.run(
-            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            ["git", "worktree", "prune"],
             cwd=project_root,
             capture_output=True,
         )
-        if worktree_path.exists():
-            shutil.rmtree(worktree_path, ignore_errors=True)
-    subprocess.run(
-        ["git", "worktree", "prune"],
-        cwd=project_root,
-        capture_output=True,
-    )
 
-    result = subprocess.run(
-        ["git", "worktree", "add", "--detach", str(worktree_path)],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git worktree add failed: {result.stderr.strip()}")
+        result = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree_path)],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"git worktree add failed: {result.stderr.strip()}")
     return worktree_path
 
 
 def cleanup_worktree(project_root: Path, worktree_path: Path) -> None:
     """Remove a worktree and its directory."""
-    subprocess.run(
-        ["git", "worktree", "remove", "--force", str(worktree_path)],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-    )
+    with _git_worktree_lock:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+        )
 
 
 def should_preserve_worktree(status: ExperimentStatus) -> bool:
@@ -81,16 +86,23 @@ def enforce_worktree_limit(foray_dir: Path, project_root: Path, max_kept: int = 
     worktrees_dir = foray_dir / "worktrees"
     if not worktrees_dir.exists():
         return
-    kept = sorted(
-        [d for d in worktrees_dir.iterdir() if d.is_dir()],
-        key=lambda p: p.stat().st_mtime,
-    )
-    while len(kept) > max_kept:
-        oldest = kept.pop(0)
-        try:
-            cleanup_worktree(project_root, oldest)
-        except subprocess.CalledProcessError:
-            shutil.rmtree(oldest, ignore_errors=True)
+    with _git_worktree_lock:
+        kept = sorted(
+            [d for d in worktrees_dir.iterdir() if d.is_dir()],
+            key=lambda p: p.stat().st_mtime,
+        )
+        while len(kept) > max_kept:
+            oldest = kept.pop(0)
+            try:
+                # Inline instead of calling cleanup_worktree to use different error handling
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(oldest)],
+                    cwd=project_root,
+                    check=True,
+                    capture_output=True,
+                )
+            except subprocess.CalledProcessError:
+                shutil.rmtree(oldest, ignore_errors=True)
 
 
 def create_git_wrapper(real_git_path: str) -> Path:
