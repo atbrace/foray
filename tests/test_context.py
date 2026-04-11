@@ -363,3 +363,24 @@ def test_synthesizer_context_truncation(tmp_path: Path):
     ctx = build_synthesizer_context(tmp_path)
     tokens = estimate_tokens(ctx)
     assert tokens <= BUDGETS["synthesizer"], f"Synthesizer context ({tokens}) exceeds budget ({BUDGETS['synthesizer']})"
+
+
+def test_build_exhaustion_evaluator_context_includes_rationale(tmp_path: Path):
+    """Exhaustion context includes the rationale and full path history."""
+    from foray.context import build_exhaustion_evaluator_context
+
+    (tmp_path / "experiments").mkdir()
+
+    path = PathInfo(id="test-path", description="A test path", priority=Priority.HIGH, hypothesis="test hyp")
+    findings = [
+        Finding(experiment_id="001", path_id="test-path", status=ExperimentStatus.SUCCESS, summary="Found X", one_liner="Found X"),
+        Finding(experiment_id="002", path_id="test-path", status=ExperimentStatus.SUCCESS, summary="Confirmed X", one_liner="Confirmed X"),
+    ]
+    rationale = "All key questions answered. Remaining gaps require real user data."
+
+    ctx = build_exhaustion_evaluator_context(tmp_path, path, findings, rationale)
+    assert "EXHAUSTED" in ctx
+    assert "All key questions answered" in ctx
+    assert "test-path" in ctx
+    assert "Found X" in ctx
+    assert "Confirmed X" in ctx

@@ -216,6 +216,57 @@ def build_evaluator_context(
     return context
 
 
+def build_exhaustion_evaluator_context(
+    foray_dir: Path,
+    path: PathInfo,
+    path_findings: list[Finding],
+    rationale: str,
+) -> str:
+    """Context for evaluator when planner signals exhaustion.
+
+    Includes the exhaustion rationale and full path history so the evaluator
+    can make a final resolution/inconclusive call.
+    """
+    sections = [
+        "# Planner EXHAUSTED Signal\n\n"
+        "The planner has indicated that no further viable experiments exist for this path. "
+        "Your job is to assess whether the path should be marked **resolved**, **inconclusive**, "
+        "or remain **open** (if you disagree with the planner's assessment).\n\n"
+        f"## Planner's Rationale\n\n{rationale}",
+        (
+            f"\n# Path State\n\n**ID:** {path.id}\n"
+            f"**Description:** {path.description}\n"
+            f"**Hypothesis:** {path.hypothesis}\n"
+            f"**Status:** {path.status}\n"
+            f"**Experiments:** {path.experiment_count}"
+        ),
+    ]
+
+    if path_findings:
+        sections.append("\n# All Experiments on This Path")
+        for f in path_findings:
+            sections.append(f"- {f.experiment_id}: [{f.status}] {f.summary}")
+
+    # Include recent assessments for richer context
+    recent = path_findings[-3:]
+    assessment_sections: list[str] = []
+    remaining = BUDGETS["evaluator"] - estimate_tokens("\n".join(sections)) - 50
+    for f in reversed(recent):
+        assessment_path = foray_dir / "experiments" / f"{f.experiment_id}_eval.json"
+        if assessment_path.exists():
+            content = assessment_path.read_text()
+            content_tokens = estimate_tokens(content)
+            if content_tokens <= remaining:
+                assessment_sections.insert(0, f"\n```json\n{content}\n```")
+                remaining -= content_tokens
+
+    if assessment_sections:
+        sections.append("\n# Recent Assessments")
+        sections.extend(assessment_sections)
+
+    return "\n".join(sections)
+
+
 def build_synthesizer_context(foray_dir: Path) -> str:
     """Synthesizer context with progressive summarization.
 

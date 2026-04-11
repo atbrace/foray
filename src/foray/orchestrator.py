@@ -12,6 +12,7 @@ import click
 
 from foray.context import (
     build_evaluator_context,
+    build_exhaustion_evaluator_context,
     build_executor_context,
     build_planner_context,
     build_synthesizer_context,
@@ -19,6 +20,7 @@ from foray.context import (
 from foray.dispatcher import (
     dispatch,
     dispatch_executor,
+    is_exhaustion_plan,
     parse_experiment_status,
     write_crash_stub,
 )
@@ -380,6 +382,55 @@ class Orchestrator:
                     experiment_id, path.id,
                     "Planner failed to produce a plan after two attempts",
                 )
+
+        # --- Check for exhaustion signal ---
+        if is_exhaustion_plan(plan_path):
+            _log(f"    {experiment_id} planner signaled exhaustion — routing to evaluator", self._run_start)
+            # Parse rationale from the exhaustion plan
+            lines = plan_path.read_text().split("\n")
+            rationale_lines = []
+            capture = False
+            for line in lines:
+                if line.strip() == "## Rationale":
+                    capture = True
+                    continue
+                if capture:
+                    rationale_lines.append(line)
+            rationale_text = "\n".join(rationale_lines).strip()
+
+            assessor_template = self._load_agent_prompt("evaluator")
+            assessor_ctx = build_exhaustion_evaluator_context(
+                self.foray_dir, path, path_findings, rationale_text,
+            )
+            assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
+            dispatch(
+                prompt=(
+                    f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
+                    f"Write assessment JSON to: {assessment_path}\n"
+                    f"Use experiment_id: {experiment_id}"
+                ),
+                workdir=self.project_root,
+                model=self.config.evaluator_model,
+                max_turns=6,
+                tools=["Read", "Write"],
+            )
+            assessment = read_evaluation(self.foray_dir, experiment_id)
+            finding_summary = assessment.summary if assessment else rationale_text[:200]
+
+            return ExperimentResult(
+                experiment_id=experiment_id,
+                path_id=path.id,
+                exp_status=ExperimentStatus.EXHAUSTED,
+                finding=Finding(
+                    experiment_id=experiment_id,
+                    path_id=path.id,
+                    status=ExperimentStatus.EXHAUSTED,
+                    summary=finding_summary,
+                    one_liner=f"Path exhausted: {rationale_text[:80]}",
+                    planner_brief=assessment.planner_brief if assessment else "",
+                ),
+                assessment=assessment,
+            )
 
         # --- Execute ---
         _log(f"    {experiment_id} executing...", self._run_start)

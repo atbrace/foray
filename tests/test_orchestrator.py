@@ -88,3 +88,27 @@ def test_open_passes_through():
 
 def test_inconclusive_passes_through():
     assert apply_guardrails(_assessment(path_status=PathStatus.INCONCLUSIVE), _path(), []) == PathStatus.INCONCLUSIVE
+
+
+# --- Exhaustion scenarios ---
+
+
+def test_exhausted_path_can_be_resolved():
+    """After exhaustion, if evaluator says resolved and path has 2+ successes, it resolves."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a"),
+        _finding("003", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(_assessment(path_status=PathStatus.RESOLVED), _path(), findings) == PathStatus.RESOLVED
+
+
+def test_exhausted_path_can_be_inconclusive():
+    """After exhaustion, evaluator can mark path inconclusive."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.INCONCLUSIVE), _path(), findings
+    ) == PathStatus.INCONCLUSIVE
