@@ -170,6 +170,65 @@ def test_finding_has_planner_brief():
     assert finding.planner_brief == "Used static analysis on src/. Found 3 patterns."
 
 
+def test_planner_includes_evidence_against(tmp_path: Path):
+    """Recent experiments should show evidence_against from eval.json."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [_finding("001", "path-a")]
+
+    # Write a corresponding eval.json with evidence_against
+    eval_obj = Evaluation(
+        experiment_id="001",
+        path_id="path-a",
+        outcome="conclusive",
+        path_status="open",
+        confidence="high",
+        summary="Found strong evidence",
+        evidence_against={"real-photo-outer-contour": "strong", "background-noise": "moderate"},
+    )
+    (tmp_path / "experiments" / "001_eval.json").write_text(eval_obj.model_dump_json())
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Evidence against:" in ctx
+    assert "real-photo-outer-contour (strong)" in ctx
+    assert "background-noise (moderate)" in ctx
+
+
+def test_planner_no_evidence_against_when_empty(tmp_path: Path):
+    """No 'Evidence against:' line when evidence_against dict is empty."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [_finding("001", "path-a")]
+
+    # Write eval.json with empty evidence_against
+    eval_obj = Evaluation(
+        experiment_id="001",
+        path_id="path-a",
+        outcome="conclusive",
+        path_status="open",
+        confidence="high",
+        summary="Found strong evidence",
+        evidence_against={},
+    )
+    (tmp_path / "experiments" / "001_eval.json").write_text(eval_obj.model_dump_json())
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Evidence against:" not in ctx
+
+
+def test_planner_no_evidence_against_when_no_eval_file(tmp_path: Path):
+    """No 'Evidence against:' line when eval.json doesn't exist."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [_finding("001", "path-a")]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Evidence against:" not in ctx
+
+
 def test_synthesizer_context(tmp_path: Path):
     (tmp_path / "vision.md").write_text("Test vision")
     (tmp_path / "state").mkdir()

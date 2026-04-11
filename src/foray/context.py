@@ -9,7 +9,7 @@ from foray.models import (
     PathInfo,
     RunState,
 )
-from foray.state import read_findings, read_paths
+from foray.state import read_evaluation, read_findings, read_paths
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,12 @@ def build_planner_context(
         for f in recent:
             brief = f.planner_brief if f.planner_brief else f.summary
             sections.append(f"- Exp {f.experiment_id}: [{f.status}] {brief}")
+            evaluation = read_evaluation(foray_dir, f.experiment_id)
+            if evaluation and evaluation.evidence_against:
+                pairs = ", ".join(
+                    f"{k} ({v})" for k, v in evaluation.evidence_against.items()
+                )
+                sections.append(f"  Evidence against: {pairs}")
 
     fail_text = _failure_summary(path_findings)
     if fail_text:
