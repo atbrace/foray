@@ -102,6 +102,7 @@ class Evaluation(_AgentOutput):
     evidence_for: dict[str, str] = Field(default_factory=dict)
     evidence_against: dict[str, str] = Field(default_factory=dict)
     blocker_description: str = ""
+    methodology: str = ""
 
 
 class RunConfig(BaseModel):
