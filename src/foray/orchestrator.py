@@ -177,7 +177,7 @@ class Orchestrator:
             if result.stdout:
                 click.echo(f"stdout (last 500 chars): ...{result.stdout[-500:]}", err=True)
             raise RuntimeError(f"Initializer failed (exit {result.exit_code})")
-        _log(f"Initialization complete", agent_start)
+        _log("Initialization complete", agent_start)
 
         return self.foray_dir
 
@@ -275,7 +275,7 @@ class Orchestrator:
         path_findings = [f for f in findings if f.path_id == path.id]
 
         # --- Plan ---
-        _log(f"    planning...", self._run_start)
+        _log("    planning...", self._run_start)
         state = read_run_state(self.foray_dir)
         planner_ctx = build_planner_context(
             self.foray_dir, path, path_findings, state,
@@ -295,7 +295,7 @@ class Orchestrator:
         )
 
         if not plan_path.exists():
-            _log(f"    planner produced no plan — retrying simplified", self._run_start)
+            _log("    planner produced no plan — retrying simplified", self._run_start)
             dispatch(
                 prompt=(
                     f"{planner_template}\n\nPath: {path.id}\n"
@@ -308,11 +308,11 @@ class Orchestrator:
                 tools=["Read", "Glob", "Grep", "Write"],
             )
             if not plan_path.exists():
-                _log(f"    planner failed twice — marking CRASH", self._run_start)
+                _log("    planner failed twice — marking CRASH", self._run_start)
                 return ExperimentStatus.CRASH
 
         # --- Execute ---
-        _log(f"    executing...", self._run_start)
+        _log("    executing...", self._run_start)
         worktree_path = create_worktree(self.project_root, experiment_id, self.foray_dir)
         results_path = self.foray_dir / "experiments" / f"{experiment_id}_results.md"
         artifacts_dir = self.foray_dir / "experiments" / f"{experiment_id}_artifacts"
@@ -341,7 +341,7 @@ class Orchestrator:
         exp_status = parse_experiment_status(results_path)
 
         # --- Assess ---
-        _log(f"    evaluating...", self._run_start)
+        _log("    evaluating...", self._run_start)
         assessor_template = self._load_agent_prompt("evaluator")
         assessor_ctx = build_evaluator_context(self.foray_dir, experiment_id, path, path_findings)
         assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
@@ -364,6 +364,7 @@ class Orchestrator:
             status=exp_status,
             summary=finding_summary,
             one_liner=finding_summary[:100],
+            planner_brief=assessment.planner_brief if assessment else "",
         ))
 
         if assessment:

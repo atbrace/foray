@@ -15,6 +15,7 @@ Write exactly this JSON structure to the specified path:
   "confidence": "high|medium|low",
   "topic_tags": ["relevant", "tags"],
   "summary": "2-3 sentence summary of what was learned",
+  "planner_brief": "2-3 sentences for the planner: what approach was taken, what the outcome was, and any blockers or key insights for the next experiment",
   "new_questions": ["New questions raised"],
   "evidence_for": {"approach": "strong|moderate|weak"},
   "evidence_against": {"approach": "strong|moderate|weak"},
@@ -40,4 +41,4 @@ Write exactly this JSON structure to the specified path:
 - Write ONLY the assessment JSON. Do not modify other files.
 - Be honest about confidence.
 - For failed experiments, still document what was learned.
-- Briefly assess vision alignment: advancing the goal or drifting?
+- Briefly assess alignment with the path hypothesis: advancing the goal or drifting?

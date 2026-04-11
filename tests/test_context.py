@@ -1,20 +1,22 @@
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from foray.models import (
-    ExperimentStatus,
-    Finding,
-    PathInfo,
-    Priority,
-    RunConfig,
-    RunState,
-)
 from foray.context import (
     build_evaluator_context,
     build_executor_context,
     build_planner_context,
     build_synthesizer_context,
     estimate_tokens,
+)
+from foray.models import (
+    Evaluation,
+    ExperimentStatus,
+    Finding,
+    PathInfo,
+    Priority,
+    RunConfig,
+    RunState,
 )
 
 
@@ -42,26 +44,21 @@ def test_estimate_tokens():
 
 
 def test_planner_progressive_summarization(tmp_path: Path):
-    """Last 3 experiments get full detail, older get one-liners."""
+    """Last 3 experiments get briefs, older get one-liners."""
     (tmp_path / "vision.md").write_text("Test vision")
     (tmp_path / "experiments").mkdir()
 
     findings = [_finding(f"{i:03d}", "path-a") for i in range(1, 6)]
-
-    for eid in ["003", "004", "005"]:
-        (tmp_path / "experiments" / f"{eid}_results.md").write_text(
-            f"## Status\nSUCCESS\n\nDetailed results for {eid}"
-        )
 
     ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
 
     # Older experiments: one-liners only
     assert "One-liner for 001" in ctx
     assert "One-liner for 002" in ctx
-    # Recent experiments: full detail
-    assert "Detailed results for 003" in ctx
-    assert "Detailed results for 004" in ctx
-    assert "Detailed results for 005" in ctx
+    # Recent experiments: summaries (planner_brief falls back to summary when empty)
+    assert "Summary for 003" in ctx
+    assert "Summary for 004" in ctx
+    assert "Summary for 005" in ctx
 
 
 def test_planner_justification_requirement(tmp_path: Path):
@@ -85,8 +82,9 @@ def test_planner_failure_summary(tmp_path: Path):
     assert "One-liner for 001" in ctx
 
 
-def test_executor_context(tmp_path: Path):
-    (tmp_path / "vision.md").write_text("Test vision")
+def test_executor_context_excludes_vision(tmp_path: Path):
+    """Executor should NOT receive vision.md — the plan already incorporates it."""
+    (tmp_path / "vision.md").write_text("Test vision content that should not appear")
     (tmp_path / "codebase_map.md").write_text("# Project Map")
     plan_path = tmp_path / "plan.md"
     plan_path.write_text("# Plan\nDo the thing")
@@ -94,17 +92,81 @@ def test_executor_context(tmp_path: Path):
     ctx = build_executor_context(tmp_path, plan_path)
     assert "Do the thing" in ctx
     assert "Project Map" in ctx
-    assert "Test vision" in ctx
+    assert "Test vision" not in ctx
 
 
-def test_evaluator_context(tmp_path: Path):
-    (tmp_path / "vision.md").write_text("Test vision")
+def test_evaluator_context_excludes_vision(tmp_path: Path):
+    """Evaluator should NOT receive vision.md — path description/hypothesis suffice."""
+    (tmp_path / "vision.md").write_text("Test vision content that should not appear")
     (tmp_path / "experiments").mkdir()
     (tmp_path / "experiments" / "001_results.md").write_text("## Status\nSUCCESS\n\nResults here")
 
     ctx = build_evaluator_context(tmp_path, "001", _path(), [])
     assert "Results here" in ctx
-    assert "Test vision" in ctx
+    assert "Test vision" not in ctx
+
+
+def test_planner_uses_briefs_instead_of_results_files(tmp_path: Path):
+    """Recent experiments should show planner_brief, not full results files."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    # Create a results file that should NOT be read
+    (tmp_path / "experiments" / "001_results.md").write_text(
+        "## Status\nSUCCESS\n\nVery long detailed results with code blocks"
+    )
+
+    findings = [Finding(
+        experiment_id="001", path_id="path-a", status=ExperimentStatus.SUCCESS,
+        summary="Summary for 001", one_liner="One-liner for 001",
+        planner_brief="Tested X approach, found Y, no blockers.",
+    )]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+
+    # Should contain the brief, not the raw results file content
+    assert "Tested X approach, found Y, no blockers." in ctx
+    assert "Very long detailed results with code blocks" not in ctx
+
+
+def test_planner_brief_on_evaluation_model():
+    """Evaluation model should have planner_brief field."""
+    eval_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "path-a",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "high",
+        "summary": "Found strong evidence",
+        "planner_brief": "Tested grep-based search. Found 12 matches. No blockers.",
+    })
+    evaluation = Evaluation.model_validate_json(eval_json)
+    assert evaluation.planner_brief == "Tested grep-based search. Found 12 matches. No blockers."
+
+
+def test_planner_brief_null_coercion():
+    """planner_brief should coerce null to empty string (agent output defense)."""
+    eval_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "path-a",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "high",
+        "summary": "Found strong evidence",
+        "planner_brief": None,
+    })
+    evaluation = Evaluation.model_validate_json(eval_json)
+    assert evaluation.planner_brief == ""
+
+
+def test_finding_has_planner_brief():
+    """Finding model should carry planner_brief from evaluation."""
+    finding = Finding(
+        experiment_id="001", path_id="path-a", status=ExperimentStatus.SUCCESS,
+        summary="Found it", one_liner="Found it",
+        planner_brief="Used static analysis on src/. Found 3 patterns.",
+    )
+    assert finding.planner_brief == "Used static analysis on src/. Found 3 patterns."
 
 
 def test_synthesizer_context(tmp_path: Path):

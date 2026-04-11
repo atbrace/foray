@@ -86,6 +86,7 @@ class Finding(BaseModel):
     status: ExperimentStatus
     summary: str
     one_liner: str
+    planner_brief: str = ""
 
 
 class Evaluation(_AgentOutput):
@@ -96,6 +97,7 @@ class Evaluation(_AgentOutput):
     confidence: Confidence
     topic_tags: list[str] = Field(default_factory=list)
     summary: str
+    planner_brief: str = ""
     new_questions: list[str] = Field(default_factory=list)
     evidence_for: dict[str, str] = Field(default_factory=dict)
     evidence_against: dict[str, str] = Field(default_factory=dict)

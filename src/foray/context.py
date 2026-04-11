@@ -48,7 +48,8 @@ def build_planner_context(
 ) -> str:
     """Scoped planner context with progressive summarization.
 
-    Last 3 experiments: full results. Older: one-line summaries.
+    Last 3 experiments: planner briefs (falling back to summary).
+    Older: one-line summaries.
     """
     vision = _read_file(foray_dir / "vision.md")
     recent = path_findings[-3:]
@@ -72,13 +73,10 @@ def build_planner_context(
             sections.append(f"- Exp {f.experiment_id}: [{f.status}] {f.one_liner}")
 
     if recent:
-        sections.append("\n## Recent Experiments (full detail)")
+        sections.append("\n## Recent Experiments")
         for f in recent:
-            results = _read_file(foray_dir / "experiments" / f"{f.experiment_id}_results.md")
-            if results:
-                sections.append(f"\n### Experiment {f.experiment_id}\n\n{results}")
-            else:
-                sections.append(f"\n### Experiment {f.experiment_id}\n\n{f.summary}")
+            brief = f.planner_brief if f.planner_brief else f.summary
+            sections.append(f"- Exp {f.experiment_id}: [{f.status}] {brief}")
 
     fail_text = _failure_summary(path_findings)
     if fail_text:
@@ -108,15 +106,17 @@ def build_planner_context(
 
 
 def build_executor_context(foray_dir: Path, plan_path: Path) -> str:
-    """Executor context: plan + codebase map + vision."""
+    """Executor context: plan + codebase map.
+
+    Vision is omitted — the plan already incorporates vision context
+    from the planner, and the executor has the tightest token budget.
+    """
     plan = _read_file(plan_path)
     codebase_map = _read_file(foray_dir / "codebase_map.md")
-    vision = _read_file(foray_dir / "vision.md")
 
     context = (
         f"# Experiment Plan\n\n{plan}\n\n"
-        f"# Codebase Map\n\n{codebase_map}\n\n"
-        f"# Vision\n\n{vision}"
+        f"# Codebase Map\n\n{codebase_map}"
     )
     tokens = estimate_tokens(context)
     if tokens > BUDGETS["executor"]:
@@ -130,9 +130,12 @@ def build_evaluator_context(
     path: PathInfo,
     path_findings: list[Finding],
 ) -> str:
-    """Evaluator context: results + vision + path state + recent assessments."""
+    """Evaluator context: results + path state + recent assessments.
+
+    Vision is omitted — the path description and hypothesis already encode
+    the relevant slice, and the evaluator runs on the most expensive model.
+    """
     results = _read_file(foray_dir / "experiments" / f"{experiment_id}_results.md")
-    vision = _read_file(foray_dir / "vision.md")
 
     recent_assessments = []
     for f in path_findings[-3:]:
@@ -142,10 +145,10 @@ def build_evaluator_context(
 
     sections = [
         f"# Experiment {experiment_id} Results\n\n{results}",
-        f"\n# Vision\n\n{vision}",
         (
             f"\n# Path State\n\n**ID:** {path.id}\n"
             f"**Description:** {path.description}\n"
+            f"**Hypothesis:** {path.hypothesis}\n"
             f"**Status:** {path.status}\n"
             f"**Experiments:** {path.experiment_count}"
         ),
