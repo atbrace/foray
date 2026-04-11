@@ -104,6 +104,12 @@ class Evaluation(_AgentOutput):
     blocker_description: str = ""
     methodology: str = ""
 
+    @model_validator(mode="after")
+    def _cap_self_eval_confidence(self) -> Evaluation:
+        if self.methodology == "self-evaluated" and self.confidence == Confidence.HIGH:
+            self.confidence = Confidence.MEDIUM
+        return self
+
 
 class RunConfig(BaseModel):
     vision_path: str
