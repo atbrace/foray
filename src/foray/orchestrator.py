@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+import click
 
 from foray.context import (
     build_evaluator_context,
@@ -60,6 +63,32 @@ from foray.worktree import (
 
 logger = logging.getLogger(__name__)
 
+_STATUS_SYMBOLS = {
+    "SUCCESS": "✓",
+    "PARTIAL": "~",
+    "FAILED": "✗",
+    "INFEASIBLE": "—",
+    "CRASH": "!",
+}
+
+
+def _elapsed_str(start: float) -> str:
+    """Format elapsed time since start as a human-readable string."""
+    secs = time.monotonic() - start
+    if secs < 60:
+        return f"{secs:.0f}s"
+    mins = secs / 60
+    if mins < 60:
+        return f"{mins:.1f}m"
+    return f"{mins / 60:.1f}h"
+
+
+def _log(msg: str, start: float | None = None) -> None:
+    """Print a timestamped progress line."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    elapsed = f" ({_elapsed_str(start)})" if start is not None else ""
+    click.echo(f"[{ts}]{elapsed} {msg}")
+
 
 def apply_guardrails(
     assessment: Evaluation,
@@ -106,6 +135,7 @@ class Orchestrator:
 
     def init(self) -> Path:
         """Initialize .foray/ directory, dispatch initializer, return foray_dir."""
+        self._run_start = time.monotonic()
         state = RunState(
             start_time=datetime.now(timezone.utc),
             config=self.config,
@@ -122,6 +152,8 @@ class Orchestrator:
         self._ensure_gitignore()
 
         # Dispatch initializer
+        _log("Initializing — analyzing codebase and identifying paths...")
+        agent_start = time.monotonic()
         template = self._load_agent_prompt("initializer")
         vision = (self.foray_dir / "vision.md").read_text()
         prompt = (
@@ -139,12 +171,21 @@ class Orchestrator:
             tools=["Read", "Glob", "Grep", "Bash", "Write"],
         )
         if result.exit_code != 0:
-            raise RuntimeError(f"Initializer failed (exit {result.exit_code}): {result.stderr[:500]}")
+            _log(f"Initializer failed (exit {result.exit_code})")
+            if result.stderr:
+                click.echo(f"stderr: {result.stderr[:1000]}", err=True)
+            if result.stdout:
+                click.echo(f"stdout (last 500 chars): ...{result.stdout[-500:]}", err=True)
+            raise RuntimeError(f"Initializer failed (exit {result.exit_code})")
+        _log(f"Initialization complete", agent_start)
 
         return self.foray_dir
 
     def run(self) -> None:
         """Main exploration loop: rounds until budget exhausted or stop file."""
+        if not hasattr(self, "_run_start"):
+            self._run_start = time.monotonic()
+
         while True:
             state = read_run_state(self.foray_dir)
             paths = read_paths(self.foray_dir)
@@ -153,7 +194,8 @@ class Orchestrator:
             if not should_continue(state, paths, (self.foray_dir / ".stop").exists()):
                 break
             if check_consecutive_failures(findings):
-                logger.warning("Circuit breaker: 3 consecutive failures -- early synthesis")
+                _log("Circuit breaker: 3 consecutive failures — stopping early",
+                     self._run_start)
                 break
 
             round_paths = get_round_paths(paths)
@@ -161,6 +203,13 @@ class Orchestrator:
                 break
 
             round_num = state.current_round + 1
+            open_n = sum(1 for p in paths if p.status == PathStatus.OPEN)
+            _log(
+                f"Round {round_num}: {len(round_paths)} experiment(s), "
+                f"{open_n} path(s) open, "
+                f"{state.experiment_count}/{state.config.max_experiments} budget used",
+                self._run_start,
+            )
             current_round = Round(
                 round_number=round_num,
                 paths=round_paths,
@@ -178,6 +227,7 @@ class Orchestrator:
                 state.current_path_index = i
                 write_run_state(self.foray_dir, state)
 
+                _log(f"  {experiment_id} | path: {path_id}")
                 exp_status = self._run_experiment(path, experiment_id, findings)
 
                 state = read_run_state(self.foray_dir)
@@ -193,9 +243,16 @@ class Orchestrator:
                     path_status_after=current_path.status,
                 ))
 
+                symbol = _STATUS_SYMBOLS.get(exp_status.value, "?")
+                status_change = ""
+                if current_path.status != PathStatus.OPEN:
+                    status_change = f" → path {current_path.status.value}"
+                _log(f"  {experiment_id} | {symbol} {exp_status.value}{status_change}",
+                     self._run_start)
+
                 findings = read_findings(self.foray_dir)
                 if check_path_failure_threshold(path_id, findings):
-                    logger.warning(f"Path '{path_id}' hit failure threshold -- marking blocked")
+                    _log(f"  {path_id}: hit failure threshold — marking blocked")
                     paths = read_paths(self.foray_dir)
                     write_paths(self.foray_dir, [
                         p.model_copy(update={"status": PathStatus.BLOCKED})
@@ -218,6 +275,7 @@ class Orchestrator:
         path_findings = [f for f in findings if f.path_id == path.id]
 
         # --- Plan ---
+        _log(f"    planning...", self._run_start)
         state = read_run_state(self.foray_dir)
         planner_ctx = build_planner_context(
             self.foray_dir, path, path_findings, state,
@@ -237,7 +295,7 @@ class Orchestrator:
         )
 
         if not plan_path.exists():
-            logger.warning(f"Planner failed for {experiment_id}, retrying simplified")
+            _log(f"    planner produced no plan — retrying simplified", self._run_start)
             dispatch(
                 prompt=(
                     f"{planner_template}\n\nPath: {path.id}\n"
@@ -250,10 +308,11 @@ class Orchestrator:
                 tools=["Read", "Glob", "Grep", "Write"],
             )
             if not plan_path.exists():
-                logger.error(f"Planner failed twice for {experiment_id}")
+                _log(f"    planner failed twice — marking CRASH", self._run_start)
                 return ExperimentStatus.CRASH
 
         # --- Execute ---
+        _log(f"    executing...", self._run_start)
         worktree_path = create_worktree(self.project_root, experiment_id, self.foray_dir)
         results_path = self.foray_dir / "experiments" / f"{experiment_id}_results.md"
         artifacts_dir = self.foray_dir / "experiments" / f"{experiment_id}_artifacts"
@@ -282,6 +341,7 @@ class Orchestrator:
         exp_status = parse_experiment_status(results_path)
 
         # --- Assess ---
+        _log(f"    evaluating...", self._run_start)
         assessor_template = self._load_agent_prompt("evaluator")
         assessor_ctx = build_evaluator_context(self.foray_dir, experiment_id, path, path_findings)
         assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
@@ -291,7 +351,7 @@ class Orchestrator:
                 f"Write assessment JSON to: {assessment_path}"
             ),
             workdir=self.project_root,
-            model=self.config.model,
+            model=self.config.evaluator_model,
             max_turns=self.config.max_turns,
             tools=["Read", "Write"],
         )
@@ -328,6 +388,7 @@ class Orchestrator:
         return exp_status
 
     def _run_synthesis(self) -> None:
+        _log("Synthesizing final report...", self._run_start)
         template = self._load_agent_prompt("synthesizer")
         ctx = build_synthesizer_context(self.foray_dir)
         dispatch(

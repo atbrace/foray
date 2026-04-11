@@ -13,12 +13,32 @@ def create_worktree(project_root: Path, experiment_id: str, foray_dir: Path) -> 
     """Create a detached HEAD worktree for an experiment."""
     worktree_path = foray_dir / "worktrees" / f"exp-{experiment_id}"
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Clean up any stale state — the directory may be gone (rm -rf .foray)
+    # while git still has the worktree registered, or both may exist from
+    # a killed run.
+    if worktree_path.exists():
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
+            cwd=project_root,
+            capture_output=True,
+        )
+        if worktree_path.exists():
+            shutil.rmtree(worktree_path, ignore_errors=True)
     subprocess.run(
-        ["git", "worktree", "add", "--detach", str(worktree_path)],
+        ["git", "worktree", "prune"],
         cwd=project_root,
-        check=True,
         capture_output=True,
     )
+
+    result = subprocess.run(
+        ["git", "worktree", "add", "--detach", str(worktree_path)],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git worktree add failed: {result.stderr.strip()}")
     return worktree_path
 
 

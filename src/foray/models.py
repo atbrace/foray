@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ExperimentStatus(StrEnum):
@@ -33,7 +34,27 @@ class Confidence(StrEnum):
     LOW = "low"
 
 
-class PathInfo(BaseModel):
+class _AgentOutput(BaseModel):
+    """Base for models deserialized from agent-written JSON.
+
+    LLM agents often emit ``null`` for fields they consider absent, even when
+    the Pydantic schema expects a concrete default (e.g. ``str = ""``).  This
+    pre-validator coerces ``null`` to the field's default so parsing doesn't
+    blow up on otherwise-valid agent output.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_nulls(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        for name, field in cls.model_fields.items():
+            if name in data and data[name] is None and field.default is not None:
+                data[name] = field.default
+        return data
+
+
+class PathInfo(_AgentOutput):
     id: str
     description: str
     priority: Priority
@@ -67,7 +88,7 @@ class Finding(BaseModel):
     one_liner: str
 
 
-class Evaluation(BaseModel):
+class Evaluation(_AgentOutput):
     experiment_id: str
     path_id: str
     outcome: str
@@ -85,7 +106,8 @@ class RunConfig(BaseModel):
     vision_path: str
     hours: float = 8.0
     max_experiments: int = 50
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-sonnet-4-6"
+    evaluator_model: str = "claude-opus-4-6"
     max_turns: int = 30
     output_dir: str = ".foray/"
     allow_tools: list[str] = Field(default_factory=list)

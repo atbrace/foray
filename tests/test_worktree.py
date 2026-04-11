@@ -31,6 +31,51 @@ def test_create_worktree(git_repo: Path):
     assert result.returncode != 0
 
 
+def test_create_worktree_replaces_stale(git_repo: Path):
+    """Simulates a killed run leaving a stale worktree behind."""
+    foray_dir = git_repo / ".foray"
+    foray_dir.mkdir()
+    (foray_dir / "worktrees").mkdir()
+
+    wt = create_worktree(git_repo, "001", foray_dir)
+    assert wt.exists()
+    marker = wt / "stale_marker.txt"
+    marker.write_text("from old run")
+
+    # Creating the same worktree again should succeed, replacing the old one.
+    wt2 = create_worktree(git_repo, "001", foray_dir)
+    assert wt2 == wt
+    assert wt2.exists()
+    assert not marker.exists()
+
+
+def test_create_worktree_after_dir_deleted(git_repo: Path):
+    """Simulates rm -rf .foray leaving stale git worktree references."""
+    foray_dir = git_repo / ".foray"
+    foray_dir.mkdir()
+    (foray_dir / "worktrees").mkdir()
+
+    wt = create_worktree(git_repo, "001", foray_dir)
+    assert wt.exists()
+
+    # Delete the directory but leave the git reference (like rm -rf .foray).
+    shutil.rmtree(wt)
+    assert not wt.exists()
+
+    # Verify git still knows about it.
+    result = subprocess.run(
+        ["git", "worktree", "list"], cwd=git_repo,
+        capture_output=True, text=True,
+    )
+    assert "exp-001" in result.stdout
+
+    # Re-creating should succeed despite the orphaned reference.
+    foray_dir.mkdir(exist_ok=True)
+    (foray_dir / "worktrees").mkdir(exist_ok=True)
+    wt2 = create_worktree(git_repo, "001", foray_dir)
+    assert wt2.exists()
+
+
 def test_cleanup_worktree(git_repo: Path):
     foray_dir = git_repo / ".foray"
     foray_dir.mkdir()

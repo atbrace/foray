@@ -104,7 +104,7 @@ def test_run_config_defaults():
     config = RunConfig(vision_path="VISION.md")
     assert config.hours == 8.0
     assert config.max_experiments == 50
-    assert config.model == "claude-sonnet-4-20250514"
+    assert config.model == "claude-sonnet-4-6"
     assert config.max_turns == 30
 
 
@@ -121,3 +121,82 @@ def test_run_state_roundtrip():
     restored = RunState.model_validate_json(json_str)
     assert restored.experiment_count == 5
     assert restored.last_completed_experiment == "005"
+
+
+# --- Agent null-coercion tests ---
+# LLM agents often emit null for fields they consider absent.  These tests
+# reproduce the exact JSON shapes that caused validation failures in prod.
+
+
+def test_evaluation_null_blocker_from_json():
+    """Evaluator emits blocker_description: null when path isn't blocked."""
+    raw_json = json.dumps({
+        "experiment_id": "001",
+        "path_id": "contour-extraction",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "medium",
+        "topic_tags": ["opencv"],
+        "summary": "Partial progress on contour extraction",
+        "new_questions": [],
+        "evidence_for": {},
+        "evidence_against": {},
+        "blocker_description": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.blocker_description == ""
+
+
+def test_evaluation_null_lists_from_json():
+    """Evaluator emits null for optional list/dict fields."""
+    raw_json = json.dumps({
+        "experiment_id": "002",
+        "path_id": "multi-angle",
+        "outcome": "inconclusive",
+        "path_status": "open",
+        "confidence": "low",
+        "topic_tags": None,
+        "summary": "Needs more data",
+        "new_questions": None,
+        "evidence_for": None,
+        "evidence_against": None,
+        "blocker_description": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.topic_tags == []
+    assert ev.new_questions == []
+    assert ev.evidence_for == {}
+    assert ev.evidence_against == {}
+    assert ev.blocker_description == ""
+
+
+def test_evaluation_missing_optional_fields():
+    """Evaluator omits optional fields entirely."""
+    raw_json = json.dumps({
+        "experiment_id": "003",
+        "path_id": "contour-extraction",
+        "outcome": "conclusive",
+        "path_status": "resolved",
+        "confidence": "high",
+        "summary": "It works",
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.topic_tags == []
+    assert ev.blocker_description == ""
+
+
+def test_path_info_null_blocker_from_json():
+    """Initializer emits blocker_description: null in paths.json."""
+    raw_json = json.dumps({
+        "id": "test-path",
+        "description": "Test",
+        "priority": "high",
+        "hypothesis": "It works",
+        "status": "open",
+        "experiment_count": 0,
+        "topic_tags": None,
+        "blocker_description": None,
+    })
+    path = PathInfo.model_validate_json(raw_json)
+    assert path.topic_tags == []
+    assert path.blocker_description == ""

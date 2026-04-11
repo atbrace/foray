@@ -22,12 +22,13 @@ def main():
 @click.option("--question", type=str, help="Inline exploration question")
 @click.option("--hours", type=float, default=8.0, show_default=True, help="Time budget")
 @click.option("--max-experiments", type=int, default=50, show_default=True, help="Experiment cap")
-@click.option("--model", type=str, default="claude-sonnet-4-20250514", show_default=True)
+@click.option("--model", type=str, default="claude-sonnet-4-6", show_default=True)
+@click.option("--evaluator-model", type=str, default="claude-opus-4-6", show_default=True, help="Model for evaluator agent")
 @click.option("--max-turns", type=int, default=30, show_default=True)
 @click.option("--output", type=str, default=".foray/", show_default=True, help="Output directory")
 @click.option("--allow", multiple=True, help="Additional tools to enable")
 @click.option("--deny", multiple=True, help="Tools to disable")
-def run(vision, question, hours, max_experiments, model, max_turns, output, allow, deny):
+def run(vision, question, hours, max_experiments, model, evaluator_model, max_turns, output, allow, deny):
     """Start an exploration run."""
     project_root = Path.cwd()
 
@@ -46,6 +47,7 @@ def run(vision, question, hours, max_experiments, model, max_turns, output, allo
         hours=hours,
         max_experiments=max_experiments,
         model=model,
+        evaluator_model=evaluator_model,
         max_turns=max_turns,
         output_dir=output,
         allow_tools=list(allow),

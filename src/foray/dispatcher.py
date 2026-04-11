@@ -128,6 +128,7 @@ def write_crash_stub(
 ) -> None:
     """Write CRASH stub when executor dies without producing results."""
     plan_content = plan_path.read_text() if plan_path.exists() else "(plan not found)"
+    stdout_tail = dispatch_result.stdout[-3000:] if dispatch_result.stdout else "(empty)"
     stub = (
         f"## Status\nCRASH\n\n"
         f"## What Happened\n"
@@ -135,6 +136,7 @@ def write_crash_stub(
         f"- Exit code: {dispatch_result.exit_code}\n"
         f"- Elapsed: {dispatch_result.elapsed_seconds:.1f}s\n\n"
         f"## Stderr\n```\n{dispatch_result.stderr[:2000]}\n```\n\n"
+        f"## Agent Output (last 3000 chars)\n```\n{stdout_tail}\n```\n\n"
         f"## Original Plan\n{plan_content}\n"
     )
     from foray.state import _atomic_write
