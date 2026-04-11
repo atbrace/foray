@@ -474,7 +474,7 @@ class Orchestrator:
             assessor_template = self._load_agent_prompt("evaluator")
             assessor_ctx = build_evaluator_context(self.foray_dir, experiment_id, path, path_findings)
             assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
-            dispatch(
+            eval_result = dispatch(
                 prompt=(
                     f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
                     f"Write assessment JSON to: {assessment_path}"
@@ -485,7 +485,15 @@ class Orchestrator:
                 tools=["Read", "Write"],
             )
             assessment = read_evaluation(self.foray_dir, experiment_id)
-            finding_summary = assessment.summary if assessment else "(assessment failed)"
+            if assessment:
+                finding_summary = assessment.summary
+            else:
+                stderr_snippet = (eval_result.stderr or "")[:500]
+                logger.warning(
+                    f"Evaluator produced no assessment for {experiment_id} "
+                    f"(exit={eval_result.exit_code}): {stderr_snippet}"
+                )
+                finding_summary = "(assessment failed)"
 
         # Worktree cleanup
         copy_artifacts(worktree_path, artifacts_dir)

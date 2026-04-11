@@ -26,10 +26,12 @@ Write exactly this JSON structure to the specified path:
 
 ## Path Status Recommendations
 
-- **open** — more work needed
-- **resolved** — answered with evidence from multiple experiments
-- **blocked** — technical blocker (must include blocker_description)
-- **inconclusive** — tried multiple approaches, no clear answer
+- **open** — more work needed, AND the next useful step is another research experiment (not integration)
+- **resolved** — the path question is answered well enough that a reasonable engineer would start building with these results. Remaining variations, optimizations, and edge cases are post-integration work — they do not block resolution
+- **blocked** — technical blocker prevents further experiments (must include blocker_description)
+- **inconclusive** — multiple approaches tried, no clear answer emerged, OR remaining questions require capabilities outside the executor sandbox (real user data, hardware, production environment)
+
+**Closure test:** Ask "Would a reasonable engineer start building with these results?" If yes → resolved. If the path has 3+ successful experiments converging on the same answer, the default recommendation should be resolved unless there is a specific, articulable reason to continue.
 
 ## Confidence Levels
 
@@ -51,3 +53,5 @@ When the executor served as both experimenter and evaluator of its own output (n
 - Be honest about confidence.
 - For failed experiments, still document what was learned.
 - Briefly assess alignment with the path hypothesis: advancing the goal or drifting?
+- `new_questions` must be specific and testable within the executor's capabilities. "Does it work on more inputs?" is not a new question — it's a repetition. "Does the circle-fitting heuristic misclassify ellipses as circles?" is a new question.
+- Do not propose new_questions that are variations of already-answered questions. If 3 experiments confirmed an approach works on diverse inputs, "try another input" is not a new question.

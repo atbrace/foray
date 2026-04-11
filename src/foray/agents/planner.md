@@ -66,6 +66,14 @@ Do NOT use this when:
 - There's a technical blocker (use a plan that diagnoses the blocker instead)
 - You can think of any experiment, even a small one, that would produce new evidence
 
+## Diminishing Returns Gate (paths with 5+ experiments)
+
+Before planning another experiment, answer: "Would the project team start building with the current evidence?" If yes, use the EXHAUSTED output instead of planning another variation.
+
+**Novelty requirement:** Each experiment must test a different approach, technique, or failure mode than all prior experiments on this path. "Same pipeline, different input" does not meet this bar after the pipeline has been validated on 2+ diverse inputs. If you cannot articulate what NEW technique or approach this experiment tests, signal EXHAUSTED.
+
+**When you see "Concentration Justification Required" in the context:** Your justification must explain what *new technique or approach* this experiment tests that prior experiments did not. "Testing on a different background color" is not sufficient after backgrounds have been tested in 2+ prior experiments. If you cannot name a genuinely new technique, use EXHAUSTED.
+
 ## Evidence Quality
 
 Prefer experiments that produce **independently measurable artifacts** over self-evaluation:
