@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_MINUTES = 10
 
+# Grace period between SIGTERM and SIGKILL.
+# claude -p exits immediately on SIGTERM (code 143) without flushing stdout,
+# but any Write tool calls that completed before the signal will have already
+# persisted to disk. The grace period ensures we try SIGTERM first so the
+# process can exit cleanly, then escalate to SIGKILL if it doesn't.
+GRACE_PERIOD_SECONDS = 5
+
 
 def dispatch(
     prompt: str,
@@ -62,13 +69,19 @@ def dispatch(
             try:
                 proc.wait(timeout=timeout_minutes * 60)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+                # Two-phase shutdown: SIGTERM first, then SIGKILL after grace period
+                proc.terminate()
+                try:
+                    proc.wait(timeout=GRACE_PERIOD_SECONDS)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Agent did not exit after SIGTERM, sending SIGKILL")
+                    proc.kill()
+                    proc.wait()
 
         elapsed = time.monotonic() - start
         stdout_text = Path(stdout_path).read_text()
         stderr_text = Path(stderr_path).read_text()
-        timed_out = proc.returncode == -9 or proc.returncode is None
+        timed_out = proc.returncode in (-9, -15, 143) or proc.returncode is None
 
         if timed_out:
             logger.warning(f"Agent timed out after {elapsed:.0f}s")

@@ -47,10 +47,36 @@ def test_dispatch_failure(mock_popen, tmp_path):
 
 
 @patch("foray.dispatcher.subprocess.Popen")
-def test_dispatch_timeout(mock_popen, tmp_path):
+def test_dispatch_timeout_graceful(mock_popen, tmp_path):
+    """SIGTERM succeeds — process exits within grace period, no SIGKILL needed."""
     proc = MagicMock()
-    # First wait() raises timeout, second wait() (after kill) returns normally
+    # First wait() raises timeout (main timeout), second wait() returns (SIGTERM worked)
     proc.wait.side_effect = [subprocess.TimeoutExpired(cmd=[], timeout=60), None]
+    proc.terminate.return_value = None
+    proc.returncode = 143  # SIGTERM exit code
+    mock_popen.return_value = proc
+
+    result = dispatch(
+        prompt="test", workdir=tmp_path, model="m",
+        max_turns=5, tools=[], timeout_minutes=1,
+    )
+    assert result.exit_code == -1
+    proc.terminate.assert_called_once()
+    proc.kill.assert_not_called()
+
+
+@patch("foray.dispatcher.subprocess.Popen")
+def test_dispatch_timeout_escalates_to_sigkill(mock_popen, tmp_path):
+    """SIGTERM ignored — process doesn't exit within grace period, SIGKILL sent."""
+    proc = MagicMock()
+    # First wait() raises timeout (main), second wait() also raises (SIGTERM ignored),
+    # third wait() returns (after SIGKILL)
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd=[], timeout=60),
+        subprocess.TimeoutExpired(cmd=[], timeout=5),
+        None,
+    ]
+    proc.terminate.return_value = None
     proc.kill.return_value = None
     proc.returncode = -9
     mock_popen.return_value = proc
@@ -60,6 +86,7 @@ def test_dispatch_timeout(mock_popen, tmp_path):
         max_turns=5, tools=[], timeout_minutes=1,
     )
     assert result.exit_code == -1
+    proc.terminate.assert_called_once()
     proc.kill.assert_called_once()
 
 

@@ -28,9 +28,11 @@ What this experiment tests, specifically.
 ## Implementation Phase (only if research phase passes)
 Step-by-step instructions for the executor. **Hard constraints:**
 - **Maximum 5 steps.** Each step = one action (read a file, run a command, write a result). If your plan needs more than 5 steps, you are overscoping — cut to the single most valuable subset.
-- **No multi-script workflows.** Do not plan experiments that require writing and running multiple scripts in sequence. One script, one analysis, one measurement.
-- **No external downloads.** Do not plan to download images, datasets, or packages from the internet. Use only files already in the repo.
-- **10-minute wall clock.** The executor will be killed at 10 minutes. Research phase + implementation must fit. Budget ~2 minutes for research, ~7 minutes for implementation, ~1 minute for writing results.
+- **Time budget: 10 minutes total.** The executor will be killed at 10 minutes. Plan with this in mind:
+  - Front-load cheap checks (does the library import? does the file exist?) before expensive operations
+  - If a step involves installing a package (`uv pip install`, `uv add`), budget 2-3 minutes for it and plan a fallback if it takes too long
+  - If a step involves downloading from the web, consider whether there's a local alternative — but don't avoid downloads when they're genuinely needed for the experiment
+  - The executor should write intermediate results after each major step, so that partial progress survives a timeout
 
 For each step, specify:
 - The exact action (which file to read, which command to run)
@@ -48,11 +50,9 @@ What the results file should contain.
 
 Tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch.
 **Research tools:** WebSearch and WebFetch are available for checking documentation, API capabilities, known limitations, and prior art. Plans MUST use these for feasibility checking before implementation.
-Works in an isolated git worktree. CANNOT: push to remotes, delete branches, access hardware, install system packages, access secrets, run more than 30 turns.
+Works in an isolated git worktree. Can install Python packages via `uv pip install` or `uv add`. Can download files from the web via WebFetch or curl. CANNOT: push to remotes, delete branches, access hardware, install system packages (apt/brew), access secrets, run more than 30 turns.
 
-**Timeout: 10 minutes hard kill.** The executor process is killed at 10 minutes with no warning. Anything not written to the results file by then is lost. Plans that try to do too much will produce CRASH with zero results — worse than a focused plan that answers one sub-question well.
-
-**What fits in 10 minutes:** Reading 5-10 files, running 1 script, writing results. What does NOT fit: downloading external data, running multiple scripts in sequence, making 10+ API calls, complex multi-stage pipelines.
+**Timeout: 10 minutes.** The executor receives a graceful shutdown signal at ~9 minutes, then is force-killed at 10 minutes. Anything not written to the results file by then is lost. Plans that try to do too much will produce CRASH with zero results — worse than a focused plan that answers one sub-question well.
 
 ## Failure Awareness
 

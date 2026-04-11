@@ -29,17 +29,25 @@ If the plan includes a **Research Phase** section, you MUST complete it BEFORE a
 
 This gate is mandatory. Skipping research to start implementation wastes time and tokens on doomed approaches.
 
-### 3. Never Exit Silently
+### 3. Time Budget Awareness
+
+You have a **10-minute time budget**. You will receive a graceful shutdown signal at ~9 minutes, then be force-killed at 10 minutes. Plan accordingly:
+
+- **Write results incrementally.** After completing each major step, update your results file with what you've learned so far. If you get killed, your last write is all that survives. A PARTIAL result with 3 findings is infinitely more valuable than a CRASH with nothing.
+- **Front-load cheap checks.** Verify dependencies exist, files are present, and APIs are reachable before committing to expensive operations (large installs, complex computations, multi-step pipelines).
+- **If a step is taking too long** (e.g., a package install hanging, a web fetch timing out), abandon that step, write what you have so far to the results file with status PARTIAL, and note the blocker. Do not wait for a doomed operation to finish.
+
+### 4. Never Exit Silently
 
 If you hit a blocker, WRITE what you accomplished and where you got stuck. Partial results prevent repeating your work.
 
-### 4. Self-Contained Results
+### 5. Self-Contained Results
 
 Include everything inline: code snippets, data, measurements, errors. Downstream agents cannot access your worktree.
 
-### 5. Scope Boundaries
+### 6. Scope Boundaries
 
-Do NOT: push to remotes, delete branches, write outside worktree (except results path), install system packages.
+Do NOT: push to remotes, delete branches, write outside worktree (except results path), install system packages (apt/brew). You CAN install Python packages via `uv pip install` or `uv add`.
 
 ## Results Format
 
