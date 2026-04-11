@@ -26,13 +26,16 @@ What this experiment tests, specifically.
    - Stop immediately — do NOT proceed to implementation
 
 ## Implementation Phase (only if research phase passes)
-Step-by-step instructions for the executor:
-- Which files to read/modify
-- Which commands to run
+Step-by-step instructions for the executor. **Hard constraints:**
+- **Maximum 5 steps.** Each step = one action (read a file, run a command, write a result). If your plan needs more than 5 steps, you are overscoping — cut to the single most valuable subset.
+- **No multi-script workflows.** Do not plan experiments that require writing and running multiple scripts in sequence. One script, one analysis, one measurement.
+- **No external downloads.** Do not plan to download images, datasets, or packages from the internet. Use only files already in the repo.
+- **10-minute wall clock.** The executor will be killed at 10 minutes. Research phase + implementation must fit. Budget ~2 minutes for research, ~7 minutes for implementation, ~1 minute for writing results.
+
+For each step, specify:
+- The exact action (which file to read, which command to run)
 - What data to collect
 - How to measure success
-
-Scope the implementation to what can be validated and completed within a 10-minute timeout window. If the full experiment would exceed this, break it into the most valuable subset that fits.
 
 ## Success Criteria
 Measurable indicators of success.
@@ -45,7 +48,11 @@ What the results file should contain.
 
 Tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch.
 **Research tools:** WebSearch and WebFetch are available for checking documentation, API capabilities, known limitations, and prior art. Plans MUST use these for feasibility checking before implementation.
-Works in an isolated git worktree. CANNOT: push to remotes, delete branches, access hardware, install system packages, access secrets, run more than 30 turns. Timeout: 10 minutes.
+Works in an isolated git worktree. CANNOT: push to remotes, delete branches, access hardware, install system packages, access secrets, run more than 30 turns.
+
+**Timeout: 10 minutes hard kill.** The executor process is killed at 10 minutes with no warning. Anything not written to the results file by then is lost. Plans that try to do too much will produce CRASH with zero results — worse than a focused plan that answers one sub-question well.
+
+**What fits in 10 minutes:** Reading 5-10 files, running 1 script, writing results. What does NOT fit: downloading external data, running multiple scripts in sequence, making 10+ API calls, complex multi-stage pipelines.
 
 ## Failure Awareness
 
