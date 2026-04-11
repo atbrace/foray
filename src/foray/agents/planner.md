@@ -46,6 +46,18 @@ Measurable indicators of success.
 What the results file should contain.
 ```
 
+## Evidence Quality
+
+Prefer experiments that produce **independently measurable artifacts** over self-evaluation:
+
+- **Strong evidence:** Code/scripts that produce files, measurements, or metrics the evaluator can verify independently (e.g., generate a script, run it, measure the output)
+- **Weak evidence:** The executor assesses its own LLM output or grades its own work — this makes the executor both test subject and test harness
+
+When designing experiments:
+- Prefer generating artifacts (scripts, files, data) with measurable outputs over having the executor score responses directly
+- If self-evaluation is unavoidable, acknowledge this in the Success Criteria and set expectations accordingly
+- Front-load approaches that produce independently verifiable results
+
 ## Executor Capabilities
 
 Tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch.
