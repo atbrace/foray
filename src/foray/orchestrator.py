@@ -405,7 +405,9 @@ class Orchestrator:
         )
 
         if not results_path.exists():
-            write_crash_stub(self.foray_dir, experiment_id, plan_path, exec_result)
+            write_crash_stub(
+                self.foray_dir, experiment_id, plan_path, exec_result,
+            )
 
         exp_status = parse_experiment_status(results_path)
 
