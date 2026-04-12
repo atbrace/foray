@@ -8,6 +8,7 @@ from foray.worktree import (
     cleanup_worktree,
     create_git_wrapper,
     create_worktree,
+    prune_worktrees,
     should_preserve_worktree,
     snapshot_git_state,
     verify_git_integrity,
@@ -148,6 +149,57 @@ def test_git_wrapper_allows_normal_commands(git_repo: Path):
         assert result.returncode == 0
     finally:
         cleanup_git_wrapper(wrapper_dir)
+
+
+def test_prune_worktrees(git_repo: Path):
+    """prune_worktrees cleans up stale worktree references."""
+    foray_dir = git_repo / ".foray"
+    foray_dir.mkdir()
+    (foray_dir / "worktrees").mkdir()
+
+    wt = create_worktree(git_repo, "stale", foray_dir)
+    assert wt.exists()
+
+    # Delete the directory but leave the git reference (simulates stale state).
+    shutil.rmtree(wt)
+    assert not wt.exists()
+
+    # Git still knows about it.
+    result = subprocess.run(
+        ["git", "worktree", "list"], cwd=git_repo,
+        capture_output=True, text=True,
+    )
+    assert "exp-stale" in result.stdout
+
+    # Prune should clean the stale reference.
+    prune_worktrees(git_repo)
+
+    result = subprocess.run(
+        ["git", "worktree", "list"], cwd=git_repo,
+        capture_output=True, text=True,
+    )
+    assert "exp-stale" not in result.stdout
+
+
+def test_create_worktree_does_not_prune(git_repo: Path):
+    """create_worktree no longer calls git worktree prune internally."""
+    foray_dir = git_repo / ".foray"
+    foray_dir.mkdir()
+    (foray_dir / "worktrees").mkdir()
+
+    # Create a worktree, delete its dir to leave a stale reference for a DIFFERENT experiment.
+    wt_stale = create_worktree(git_repo, "old", foray_dir)
+    shutil.rmtree(wt_stale)
+
+    # Now create a different worktree — it should NOT prune the stale one.
+    create_worktree(git_repo, "new", foray_dir)
+
+    result = subprocess.run(
+        ["git", "worktree", "list"], cwd=git_repo,
+        capture_output=True, text=True,
+    )
+    # The stale "old" reference should still be present (not pruned).
+    assert "exp-old" in result.stdout
 
 
 def test_git_integrity_unchanged(git_repo: Path):

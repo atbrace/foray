@@ -12,6 +12,16 @@ from foray.models import ExperimentStatus
 _git_worktree_lock = threading.Lock()
 
 
+def prune_worktrees(project_root: Path) -> None:
+    """Prune stale worktree references. Call once per round, not per experiment."""
+    with _git_worktree_lock:
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=project_root,
+            capture_output=True,
+        )
+
+
 def create_worktree(project_root: Path, experiment_id: str, foray_dir: Path) -> Path:
     """Create a detached HEAD worktree for an experiment."""
     worktree_path = foray_dir / "worktrees" / f"exp-{experiment_id}"
@@ -20,20 +30,14 @@ def create_worktree(project_root: Path, experiment_id: str, foray_dir: Path) -> 
     with _git_worktree_lock:
         # Clean up any stale state — the directory may be gone (rm -rf .foray)
         # while git still has the worktree registered, or both may exist from
-        # a killed run.
-        if worktree_path.exists():
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree_path)],
-                cwd=project_root,
-                capture_output=True,
-            )
-            if worktree_path.exists():
-                shutil.rmtree(worktree_path, ignore_errors=True)
+        # a killed run. Always attempt remove to clear orphaned git references.
         subprocess.run(
-            ["git", "worktree", "prune"],
+            ["git", "worktree", "remove", "--force", str(worktree_path)],
             cwd=project_root,
             capture_output=True,
         )
+        if worktree_path.exists():
+            shutil.rmtree(worktree_path, ignore_errors=True)
 
         result = subprocess.run(
             ["git", "worktree", "add", "--detach", str(worktree_path)],
