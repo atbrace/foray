@@ -1,7 +1,8 @@
-import importlib.util
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from foray.context import build_planner_context
 from foray.environment import run_preflight
@@ -46,16 +47,24 @@ def test_preflight_reports_packages(tmp_path: Path):
     run_preflight(tmp_path)
     content = (tmp_path / "environment.md").read_text()
     assert "## Python Packages" in content
-    # Each line should match "- name: ..." format
     lines = [l for l in content.splitlines() if l.startswith("- ") and ":" in l]
     assert len(lines) > 0
 
 
-def test_preflight_reports_unavailable_package(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+@patch("foray.environment.subprocess.run")
+def test_preflight_reports_unavailable_package(mock_run, tmp_path: Path):
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ModuleNotFoundError")
     run_preflight(tmp_path)
     content = (tmp_path / "environment.md").read_text()
     assert "not available" in content
+
+
+@patch("foray.environment.subprocess.run")
+def test_preflight_reports_available_package(mock_run, tmp_path: Path):
+    mock_run.return_value = MagicMock(returncode=0, stdout="1.26.4\n", stderr="")
+    run_preflight(tmp_path)
+    content = (tmp_path / "environment.md").read_text()
+    assert "1.26.4" in content
 
 
 def test_planner_context_includes_environment(tmp_path: Path):

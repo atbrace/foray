@@ -205,7 +205,7 @@ class Orchestrator:
             raise RuntimeError(f"Initializer failed (exit {result.exit_code})")
         _log("Initialization complete", agent_start)
 
-        run_preflight(self.foray_dir)
+        run_preflight(self.foray_dir, self.project_root)
         _log("Environment pre-flight complete", self._run_start)
 
         return self.foray_dir
