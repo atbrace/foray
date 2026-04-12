@@ -15,7 +15,7 @@ from foray.models import (
     RunConfig,
     RunState,
 )
-from foray.orchestrator import Orchestrator, apply_guardrails
+from foray.orchestrator import Orchestrator, _format_seconds, apply_guardrails
 from foray.state import init_directory
 
 
@@ -329,3 +329,132 @@ def test_synthesis_logs_warning_on_double_failure(mock_ctx, mock_dispatch, tmp_p
     assert not (foray_dir / "synthesis.md").exists()
     warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
     assert any("Synthesis failed after 2 attempts" in m for m in warning_msgs)
+
+
+# --- Dispatch elapsed time logging (GH-8) ---
+
+
+def test_format_seconds_under_minute():
+    assert _format_seconds(3.0) == "3s"
+    assert _format_seconds(59.4) == "59s"
+
+
+def test_format_seconds_boundary():
+    assert _format_seconds(60.0) == "1.0m"
+
+
+def test_format_seconds_minutes():
+    assert _format_seconds(90.0) == "1.5m"
+    assert _format_seconds(300.0) == "5.0m"
+
+
+def test_format_seconds_hours():
+    assert _format_seconds(3600.0) == "1.0h"
+    assert _format_seconds(7200.0) == "2.0h"
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.dispatch_executor")
+@patch("foray.orchestrator.create_worktree")
+@patch("foray.orchestrator.cleanup_worktree")
+@patch("foray.orchestrator.copy_artifacts")
+@patch("foray.orchestrator.enforce_worktree_limit")
+@patch("foray.orchestrator.read_evaluation")
+def test_experiment_logs_dispatch_elapsed(
+    mock_eval, mock_enforce, mock_copy, mock_cleanup, mock_create_wt,
+    mock_dispatch_exec, mock_dispatch, tmp_path, capsys,
+):
+    """Each agent dispatch logs its elapsed time in progress output (GH-8)."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    path = PathInfo(
+        id="a", description="test", priority=Priority.HIGH, hypothesis="test",
+    )
+
+    plan_path = foray_dir / "experiments" / "001_plan.md"
+
+    def dispatch_side_effect(prompt, **kwargs):
+        if "_eval.json" in prompt:
+            return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=9.0)
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Plan\nTest plan")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=3.0)
+
+    mock_dispatch.side_effect = dispatch_side_effect
+
+    results_path = foray_dir / "experiments" / "001_results.md"
+
+    def write_results(*args, **kwargs):
+        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=45.0)
+
+    mock_dispatch_exec.side_effect = write_results
+    mock_create_wt.return_value = tmp_path / "worktree"
+    (tmp_path / "worktree").mkdir()
+    mock_eval.return_value = Evaluation(
+        experiment_id="001", path_id="a", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="done",
+    )
+
+    orch._run_experiment(path, "001", [], state)
+
+    captured = capsys.readouterr()
+    assert "planned (3s)" in captured.out
+    assert "executed (45s)" in captured.out
+    assert "evaluated (9s)" in captured.out
+
+
+def test_timing_accumulation(tmp_path):
+    """Orchestrator accumulates per-agent-type dispatch timing (GH-8)."""
+    config = RunConfig(vision_path="vision.md")
+    orch = Orchestrator(tmp_path, config)
+
+    orch._record_timing("planner", 3.0)
+    orch._record_timing("executor", 45.0)
+    orch._record_timing("evaluator", 9.0)
+    orch._record_timing("planner", 4.0)
+
+    assert orch._agent_timing["planner"] == [3.0, 4.0]
+    assert orch._agent_timing["executor"] == [45.0]
+    assert orch._agent_timing["evaluator"] == [9.0]
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.build_synthesizer_context", return_value="ctx")
+def test_synthesis_includes_timing_stats(mock_ctx, mock_dispatch, tmp_path):
+    """Synthesis prompt includes aggregate timing stats per agent type (GH-8)."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"synthesizer": "synth prompt"}
+
+    orch._record_timing("planner", 3.0)
+    orch._record_timing("planner", 4.0)
+    orch._record_timing("executor", 45.0)
+    orch._record_timing("evaluator", 9.0)
+
+    synthesis_path = foray_dir / "synthesis.md"
+
+    def write_synthesis(prompt, **kwargs):
+        synthesis_path.write_text("# Report")
+        return DispatchResult(exit_code=0, stdout="", stderr="", elapsed_seconds=10.0)
+
+    mock_dispatch.side_effect = write_synthesis
+    orch._run_synthesis()
+
+    prompt_arg = mock_dispatch.call_args.kwargs["prompt"]
+    assert "planner" in prompt_arg
+    assert "executor" in prompt_arg
+    assert "evaluator" in prompt_arg
+    assert "7s" in prompt_arg   # planner total: 3 + 4 = 7
+    assert "45s" in prompt_arg  # executor total
+    assert "9s" in prompt_arg   # evaluator total

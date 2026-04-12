@@ -71,6 +71,9 @@ class RoundOutcome(BaseModel):
     experiment_id: str
     status: ExperimentStatus
     path_status_after: PathStatus
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    elapsed_seconds: float | None = None
 
 
 class Round(BaseModel):
@@ -155,3 +158,6 @@ class ExperimentResult(BaseModel):
     exp_status: ExperimentStatus
     finding: Finding
     assessment: Evaluation | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    elapsed_seconds: float | None = None

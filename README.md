@@ -2,6 +2,8 @@
   <img src="foray_banner.png" alt="foray" width="600">
 </p>
 
+> **Beta software in active development.** Features and interfaces may change without notice. Foray dispatches multiple AI agents that make real tool calls in your codebase -- this is inherently token-intensive and can consume significant API credits. Experiments run in isolated worktrees and are designed to be non-destructive, but you should review the default tool permissions and use `--deny-tools` to restrict access as needed. Start with short runs (`--hours 0.5 --max-experiments 3`) to calibrate cost and behavior before committing to longer explorations.
+
 Autonomous exploration tool that dispatches Claude Code agents to run experiments in isolated git worktrees and produces a synthesis report. Point it at a codebase with a question, run it overnight, come back to findings.
 
 Foray is for questions that need empirical answers -- where you have hypotheses to test or a goal to reach but multiple possible paths to get there. Instead of speculating, it runs actual experiments in isolated worktrees and synthesizes what it finds.

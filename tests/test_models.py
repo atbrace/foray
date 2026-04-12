@@ -332,3 +332,74 @@ def test_evaluation_independent_keeps_high_confidence():
     })
     ev = Evaluation.model_validate_json(raw_json)
     assert ev.confidence == Confidence.HIGH
+
+
+# --- Per-experiment timing (GH-14) ---
+
+
+def test_round_outcome_timing_fields():
+    """RoundOutcome includes optional timing fields."""
+    now = datetime.now(timezone.utc)
+    outcome = RoundOutcome(
+        path_id="a",
+        experiment_id="001",
+        status=ExperimentStatus.SUCCESS,
+        path_status_after=PathStatus.OPEN,
+        started_at=now,
+        completed_at=now,
+        elapsed_seconds=42.5,
+    )
+    data = json.loads(outcome.model_dump_json())
+    assert data["started_at"] is not None
+    assert data["completed_at"] is not None
+    assert data["elapsed_seconds"] == 42.5
+
+
+def test_round_outcome_timing_defaults_to_none():
+    """RoundOutcome timing fields default to None for backwards compat."""
+    outcome = RoundOutcome(
+        path_id="a",
+        experiment_id="001",
+        status=ExperimentStatus.SUCCESS,
+        path_status_after=PathStatus.OPEN,
+    )
+    assert outcome.started_at is None
+    assert outcome.completed_at is None
+    assert outcome.elapsed_seconds is None
+
+
+def test_round_outcome_timing_roundtrip():
+    """RoundOutcome with timing survives JSON serialization roundtrip."""
+    now = datetime.now(timezone.utc)
+    outcome = RoundOutcome(
+        path_id="a",
+        experiment_id="001",
+        status=ExperimentStatus.SUCCESS,
+        path_status_after=PathStatus.OPEN,
+        started_at=now,
+        completed_at=now,
+        elapsed_seconds=42.5,
+    )
+    restored = RoundOutcome.model_validate_json(outcome.model_dump_json())
+    assert restored.elapsed_seconds == 42.5
+    assert restored.started_at is not None
+
+
+def test_experiment_result_timing_fields():
+    """ExperimentResult carries timing for thread-to-merge flow."""
+    now = datetime.now(timezone.utc)
+    from foray.models import ExperimentResult
+    result = ExperimentResult(
+        experiment_id="001",
+        path_id="a",
+        exp_status=ExperimentStatus.SUCCESS,
+        finding=Finding(
+            experiment_id="001", path_id="a",
+            status=ExperimentStatus.SUCCESS, summary="ok",
+        ),
+        started_at=now,
+        completed_at=now,
+        elapsed_seconds=42.5,
+    )
+    assert result.started_at == now
+    assert result.elapsed_seconds == 42.5

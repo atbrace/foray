@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import concurrent.futures
 import logging
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 
-from foray.environment import run_preflight
 from foray.context import (
     build_evaluator_context,
     build_exhaustion_evaluator_context,
@@ -26,6 +24,7 @@ from foray.dispatcher import (
     write_crash_stub,
     write_planner_crash_stub,
 )
+from foray.environment import run_preflight
 from foray.models import (
     Confidence,
     DispatchResult,
@@ -40,21 +39,6 @@ from foray.models import (
     RunConfig,
     RunState,
 )
-
-
-def _crash_result(experiment_id: str, path_id: str, summary: str) -> ExperimentResult:
-    """Build a CRASH ExperimentResult with a minimal Finding."""
-    return ExperimentResult(
-        experiment_id=experiment_id,
-        path_id=path_id,
-        exp_status=ExperimentStatus.CRASH,
-        finding=Finding(
-            experiment_id=experiment_id,
-            path_id=path_id,
-            status=ExperimentStatus.CRASH,
-            summary=summary,
-        ),
-    )
 from foray.permissions import resolve_tools
 from foray.scheduler import (
     check_consecutive_failures,
@@ -99,15 +83,19 @@ _STATUS_SYMBOLS = {
 }
 
 
-def _elapsed_str(start: float) -> str:
-    """Format elapsed time since start as a human-readable string."""
-    secs = time.monotonic() - start
+def _format_seconds(secs: float) -> str:
+    """Format a duration in seconds as a human-readable string."""
     if secs < 60:
         return f"{secs:.0f}s"
     mins = secs / 60
     if mins < 60:
         return f"{mins:.1f}m"
     return f"{mins / 60:.1f}h"
+
+
+def _elapsed_str(start: float) -> str:
+    """Format elapsed time since start as a human-readable string."""
+    return _format_seconds(time.monotonic() - start)
 
 
 def _log(msg: str, start: float | None = None) -> None:
@@ -153,6 +141,21 @@ def apply_guardrails(
     return recommended
 
 
+def _crash_result(experiment_id: str, path_id: str, summary: str) -> ExperimentResult:
+    """Build a CRASH ExperimentResult with a minimal Finding."""
+    return ExperimentResult(
+        experiment_id=experiment_id,
+        path_id=path_id,
+        exp_status=ExperimentStatus.CRASH,
+        finding=Finding(
+            experiment_id=experiment_id,
+            path_id=path_id,
+            status=ExperimentStatus.CRASH,
+            summary=summary,
+        ),
+    )
+
+
 class Orchestrator:
     def __init__(self, project_root: Path, config: RunConfig):
         self.project_root = project_root
@@ -161,6 +164,13 @@ class Orchestrator:
         self.tools = resolve_tools(config.allow_tools, config.deny_tools)
         self._prompt_cache: dict[str, str] = {}
         self._prompt_cache_lock = threading.Lock()
+        self._agent_timing: dict[str, list[float]] = {}
+        self._timing_lock = threading.Lock()
+
+    def _record_timing(self, agent_type: str, elapsed: float) -> None:
+        """Record a dispatch elapsed time for aggregate stats."""
+        with self._timing_lock:
+            self._agent_timing.setdefault(agent_type, []).append(elapsed)
 
     def init(self) -> Path:
         """Initialize .foray/ directory, dispatch initializer, return foray_dir."""
@@ -199,6 +209,7 @@ class Orchestrator:
             max_turns=self.config.max_turns,
             tools=["Read", "Glob", "Grep", "Bash", "Write"],
         )
+        self._record_timing("initializer", result.elapsed_seconds)
         if result.exit_code != 0:
             _log(f"Initializer failed (exit {result.exit_code})")
             if result.stderr:
@@ -206,7 +217,7 @@ class Orchestrator:
             if result.stdout:
                 click.echo(f"stdout (last 500 chars): ...{result.stdout[-500:]}", err=True)
             raise RuntimeError(f"Initializer failed (exit {result.exit_code})")
-        _log("Initialization complete", agent_start)
+        _log(f"Initialized ({_format_seconds(result.elapsed_seconds)})", agent_start)
 
         run_preflight(self.foray_dir, self.project_root)
         _log("Environment pre-flight complete", self._run_start)
@@ -309,6 +320,9 @@ class Orchestrator:
                         experiment_id=result.experiment_id,
                         status=result.exp_status,
                         path_status_after=current_path.status if current_path else PathStatus.OPEN,
+                        started_at=result.started_at,
+                        completed_at=result.completed_at,
+                        elapsed_seconds=result.elapsed_seconds,
                     ))
 
                     symbol = _STATUS_SYMBOLS.get(result.exp_status.value, "?")
@@ -347,7 +361,7 @@ class Orchestrator:
             logger.error(f"Experiment {experiment_id} crashed: {e}", exc_info=True)
             return _crash_result(experiment_id, path.id, f"Experiment crashed: {e}")
 
-    def _cleanup_prebuilt_worktree(self, future: concurrent.futures.Future) -> None:
+    def _cleanup_prebuilt_worktree(self, future: Future) -> None:
         """Clean up a pre-created worktree when the experiment exits early."""
         try:
             wt_path = future.result(timeout=30)
@@ -360,10 +374,11 @@ class Orchestrator:
         state: RunState,
     ) -> ExperimentResult:
         """Inner experiment logic — may raise."""
+        exp_started_at = datetime.now(timezone.utc)
         path_findings = [f for f in findings if f.path_id == path.id]
 
         # Pre-create worktree in background (overlaps with planning)
-        worktree_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        worktree_pool = ThreadPoolExecutor(max_workers=1)
         worktree_future = worktree_pool.submit(
             create_worktree, self.project_root, experiment_id, self.foray_dir,
         )
@@ -388,6 +403,8 @@ class Orchestrator:
             tools=["Read", "Glob", "Grep", "Write"],
         )
         planner_attempts.append(planner_result)
+        self._record_timing("planner", planner_result.elapsed_seconds)
+        _log(f"    {experiment_id} planned ({_format_seconds(planner_result.elapsed_seconds)})", self._run_start)
 
         if not plan_path.exists():
             logger.warning(
@@ -442,7 +459,7 @@ class Orchestrator:
                 self.foray_dir, path, path_findings, rationale_text,
             )
             assessment_path = self.foray_dir / "experiments" / f"{experiment_id}_eval.json"
-            dispatch(
+            exhaust_eval_result = dispatch(
                 prompt=(
                     f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
                     f"Write assessment JSON to: {assessment_path}\n"
@@ -453,11 +470,14 @@ class Orchestrator:
                 max_turns=6,
                 tools=["Read", "Write"],
             )
+            self._record_timing("evaluator", exhaust_eval_result.elapsed_seconds)
+            _log(f"    {experiment_id} evaluated ({_format_seconds(exhaust_eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             finding_summary = assessment.summary if assessment else rationale_text[:200]
 
             self._cleanup_prebuilt_worktree(worktree_future)
             worktree_pool.shutdown(wait=False)
+            exp_completed_at = datetime.now(timezone.utc)
             return ExperimentResult(
                 experiment_id=experiment_id,
                 path_id=path.id,
@@ -471,6 +491,9 @@ class Orchestrator:
                     planner_brief=assessment.planner_brief if assessment else "",
                 ),
                 assessment=assessment,
+                started_at=exp_started_at,
+                completed_at=exp_completed_at,
+                elapsed_seconds=(exp_completed_at - exp_started_at).total_seconds(),
             )
 
         # --- Execute ---
@@ -497,6 +520,8 @@ class Orchestrator:
             tools=self.tools,
             foray_dir=self.foray_dir,
         )
+        self._record_timing("executor", exec_result.elapsed_seconds)
+        _log(f"    {experiment_id} executed ({_format_seconds(exec_result.elapsed_seconds)})", self._run_start)
 
         if not results_path.exists():
             write_crash_stub(
@@ -525,6 +550,8 @@ class Orchestrator:
                 max_turns=6,
                 tools=["Read", "Write"],
             )
+            self._record_timing("evaluator", eval_result.elapsed_seconds)
+            _log(f"    {experiment_id} evaluated ({_format_seconds(eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             if assessment:
                 finding_summary = assessment.summary
@@ -542,6 +569,7 @@ class Orchestrator:
             cleanup_worktree(self.project_root, worktree_path)
         enforce_worktree_limit(self.foray_dir, self.project_root)
 
+        exp_completed_at = datetime.now(timezone.utc)
         return ExperimentResult(
             experiment_id=experiment_id,
             path_id=path.id,
@@ -554,6 +582,9 @@ class Orchestrator:
                 planner_brief=assessment.planner_brief if assessment else "",
             ),
             assessment=assessment,
+            started_at=exp_started_at,
+            completed_at=exp_completed_at,
+            elapsed_seconds=(exp_completed_at - exp_started_at).total_seconds(),
         )
 
     def _apply_experiment_result(self, result: ExperimentResult) -> PathInfo | None:
@@ -586,16 +617,36 @@ class Orchestrator:
 
         return updated_path
 
+    def _format_timing_stats(self) -> str:
+        """Format aggregate timing stats per agent type for synthesis context."""
+        if not self._agent_timing:
+            return ""
+        lines = ["## Agent Timing Stats"]
+        for agent_type in sorted(self._agent_timing):
+            times = self._agent_timing[agent_type]
+            total = sum(times)
+            count = len(times)
+            avg = total / count
+            lines.append(
+                f"- {agent_type}: {count} call(s), "
+                f"{_format_seconds(total)} total, "
+                f"{_format_seconds(avg)} avg"
+            )
+        return "\n".join(lines)
+
     def _run_synthesis(self) -> None:
         _log("Synthesizing final report...", self._run_start)
         template = self._load_agent_prompt("synthesizer")
         ctx = build_synthesizer_context(self.foray_dir)
         synthesis_path = self.foray_dir / "synthesis.md"
+        timing_stats = self._format_timing_stats()
         prompt = (
             f"{template}\n\n---\n\n{ctx}\n\n---\n\n"
             f"Write synthesis report to: {synthesis_path}\n"
             f"Read individual results from: {self.foray_dir / 'experiments'}/"
         )
+        if timing_stats:
+            prompt += f"\n\n{timing_stats}"
 
         for attempt in range(2):
             result = dispatch(

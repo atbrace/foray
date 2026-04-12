@@ -293,3 +293,57 @@ def test_concurrent_worktree_creation(git_repo):
     # Cleanup
     for wt_path in results:
         cleanup_worktree(git_repo, wt_path)
+
+
+# --- Per-experiment timing in rounds.json (GH-14) ---
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.dispatch_executor")
+@patch("foray.orchestrator.create_worktree")
+@patch("foray.orchestrator.cleanup_worktree")
+@patch("foray.orchestrator.copy_artifacts")
+@patch("foray.orchestrator.enforce_worktree_limit")
+@patch("foray.orchestrator.read_evaluation")
+def test_experiment_result_carries_timing(
+    mock_eval, mock_enforce, mock_copy, mock_cleanup, mock_create_wt,
+    mock_dispatch_exec, mock_dispatch, tmp_path,
+):
+    """_run_experiment populates started_at, completed_at, elapsed_seconds on result (GH-14)."""
+    config = _make_config()
+    foray_dir = _setup_foray_dir(tmp_path, config)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    path = _make_path("a")
+    state = _make_state(config=config)
+
+    plan_path = foray_dir / "experiments" / "001_plan.md"
+
+    def write_plan(prompt, **kwargs):
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Plan\nTest plan")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=1.0)
+
+    mock_dispatch.side_effect = write_plan
+
+    results_path = foray_dir / "experiments" / "001_results.md"
+
+    def write_results(*args, **kwargs):
+        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=5.0)
+
+    mock_dispatch_exec.side_effect = write_results
+    mock_create_wt.return_value = tmp_path / "worktree"
+    (tmp_path / "worktree").mkdir()
+    mock_eval.return_value = _make_evaluation("001", "a")
+
+    result = orch._run_experiment(path, "001", [], state)
+
+    assert result.started_at is not None
+    assert result.completed_at is not None
+    assert result.elapsed_seconds is not None
+    assert result.elapsed_seconds > 0
+    assert result.completed_at >= result.started_at
