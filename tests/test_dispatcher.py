@@ -6,6 +6,7 @@ from foray.dispatcher import (
     dispatch,
     is_exhaustion_plan,
     parse_experiment_status,
+    parse_stream_json_diagnostics,
     write_crash_stub,
     write_planner_crash_stub,
 )
@@ -336,3 +337,85 @@ def test_write_planner_crash_stub_single_attempt(tmp_path):
     assert "Exit code: -1" in stub
     assert "(empty)" in stub  # empty stdout
     assert "timeout" in stub
+
+
+# --- parse_stream_json_diagnostics tests ---
+
+
+def test_parse_stream_json_diagnostics_normal():
+    """JSONL with tool_use and text events returns correct diagnostics."""
+    jsonl = "\n".join([
+        '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Let me read the file."}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"path": "foo.py"}}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Now I will edit it."}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Write", "input": {"path": "bar.py"}}]}}',
+        '{"type": "result", "result": "done"}',
+    ])
+    diag = parse_stream_json_diagnostics(jsonl)
+    assert diag["tool_count"] == 2
+    assert diag["last_tool"] == "Write"
+    assert "Now I will edit it." in diag["partial_text"]
+
+
+def test_parse_stream_json_diagnostics_empty():
+    """Empty string returns empty diagnostics."""
+    diag = parse_stream_json_diagnostics("")
+    assert diag["tool_count"] == 0
+    assert diag["last_tool"] == ""
+    assert diag["partial_text"] == ""
+
+
+def test_parse_stream_json_diagnostics_no_tool_use():
+    """JSONL with only text events returns 0 tools and the text."""
+    jsonl = "\n".join([
+        '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Thinking about the problem..."}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "text", "text": "I need more context."}]}}',
+    ])
+    diag = parse_stream_json_diagnostics(jsonl)
+    assert diag["tool_count"] == 0
+    assert diag["last_tool"] == ""
+    assert "Thinking about the problem..." in diag["partial_text"]
+    assert "I need more context." in diag["partial_text"]
+
+
+def test_parse_stream_json_diagnostics_invalid_lines():
+    """Non-JSON lines are skipped gracefully."""
+    jsonl = "\n".join([
+        "not json at all",
+        '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}',
+        "another bad line",
+    ])
+    diag = parse_stream_json_diagnostics(jsonl)
+    assert diag["tool_count"] == 1
+    assert diag["last_tool"] == "Bash"
+
+
+def test_parse_stream_json_diagnostics_truncates_text():
+    """Partial text is truncated to last 500 chars."""
+    long_text = "x" * 1000
+    jsonl = f'{{"type": "assistant", "message": {{"content": [{{"type": "text", "text": "{long_text}"}}]}}}}'
+    diag = parse_stream_json_diagnostics(jsonl)
+    assert len(diag["partial_text"]) == 500
+
+
+def test_crash_stub_includes_stream_diagnostics(tmp_path):
+    """Crash stub includes agent progress from stream-json output."""
+    (tmp_path / "experiments").mkdir()
+    plan_path = tmp_path / "experiments" / "001_plan.md"
+    plan_path.write_text("# Plan\nStream test")
+
+    jsonl_stdout = "\n".join([
+        '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {}}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}',
+        '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Installing deps..."}]}}',
+    ])
+    dr = DispatchResult(
+        exit_code=-1, stdout=jsonl_stdout, stderr="", elapsed_seconds=600.0,
+    )
+    write_crash_stub(tmp_path, "001", plan_path, dr, timeout_minutes=10.0)
+
+    stub = (tmp_path / "experiments" / "001_results.md").read_text()
+    assert "Agent Progress" in stub
+    assert "Tool calls completed: 2" in stub
+    assert "Last tool used: Bash" in stub
+    assert "Installing deps..." in stub

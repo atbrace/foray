@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as _json
 import logging
 import os
 import shutil
@@ -37,6 +38,7 @@ def dispatch(
     timeout_minutes: float = DEFAULT_TIMEOUT_MINUTES,
     results_file: Path | None = None,
     env: dict[str, str] | None = None,
+    output_format: str = "text",
 ) -> DispatchResult:
     """Dispatch a Claude Code CLI agent and capture results."""
     cmd = [
@@ -44,8 +46,10 @@ def dispatch(
         "--model", model,
         "--max-turns", str(max_turns),
         "--permission-mode", "acceptEdits",
-        "--output-format", "text",
+        "--output-format", output_format,
     ]
+    if output_format == "stream-json":
+        cmd.append("--verbose")
     if tools:
         cmd.extend(["--allowedTools", ",".join(tools)])
 
@@ -134,6 +138,7 @@ def dispatch_executor(
             timeout_minutes=timeout_minutes,
             results_file=results_file,
             env=custom_env,
+            output_format="stream-json",
         )
     finally:
         cleanup_git_wrapper(wrapper_dir)
@@ -144,6 +149,50 @@ def dispatch_executor(
         raise RuntimeError(f"Git integrity violation: {msg}")
 
     return result
+
+
+def parse_stream_json_diagnostics(stdout: str) -> dict[str, str | int]:
+    """Extract diagnostics from stream-json verbose output.
+
+    Returns dict with: last_tool (str), tool_count (int), partial_text (str).
+    """
+    tool_count = 0
+    last_tool = ""
+    text_parts: list[str] = []
+
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = _json.loads(line)
+        except (ValueError, _json.JSONDecodeError):
+            continue
+
+        # Navigate into content blocks
+        content = None
+        if isinstance(obj, dict):
+            msg = obj.get("message", obj)
+            if isinstance(msg, dict):
+                content = msg.get("content", [])
+
+        if not isinstance(content, list):
+            continue
+
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use":
+                tool_count += 1
+                last_tool = block.get("name", "")
+            elif block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+
+    partial = "\n".join(text_parts)
+    return {
+        "last_tool": last_tool,
+        "tool_count": tool_count,
+        "partial_text": partial[-500:] if partial else "",
+    }
 
 
 def _classify_failure(
@@ -203,6 +252,20 @@ def write_crash_stub(
     plan_content = plan_path.read_text() if plan_path.exists() else "(plan not found)"
     stdout_tail = dispatch_result.stdout[-3000:] if dispatch_result.stdout else "(empty)"
     classification = _classify_failure(dispatch_result, timeout_minutes)
+    diagnostics = parse_stream_json_diagnostics(dispatch_result.stdout)
+    progress_section = ""
+    if diagnostics["tool_count"] > 0:
+        progress_section = (
+            f"## Agent Progress\n"
+            f"- Tool calls completed: {diagnostics['tool_count']}\n"
+            f"- Last tool used: {diagnostics['last_tool']}\n"
+        )
+        if diagnostics["partial_text"]:
+            progress_section += (
+                f"- Last assistant text:\n```\n{diagnostics['partial_text']}\n```\n"
+            )
+        progress_section += "\n"
+
     stub = (
         f"## Status\nCRASH\n\n"
         f"## What Happened\n"
@@ -210,6 +273,7 @@ def write_crash_stub(
         f"- Exit code: {dispatch_result.exit_code}\n"
         f"- Elapsed: {dispatch_result.elapsed_seconds:.1f}s\n\n"
         f"## Failure Classification\n{classification}\n\n"
+        f"{progress_section}"
         f"## Stderr\n```\n{dispatch_result.stderr[:2000]}\n```\n\n"
         f"## Agent Output (last 3000 chars)\n```\n{stdout_tail}\n```\n\n"
         f"## Original Plan\n{plan_content}\n"
