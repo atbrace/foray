@@ -107,6 +107,10 @@ def build_planner_context(
         f"{run_state.config.hours} hours"
     )
 
+    env_md = _read_file(foray_dir / "environment.md")
+    if env_md:
+        sections.append(f"\n{env_md}")
+
     if needs_justification:
         sections.append(
             "\n## IMPORTANT: Concentration Justification Required\n"
