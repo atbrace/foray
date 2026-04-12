@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 
 from foray.models import (
-    ExperimentStatus,
     Finding,
     PathInfo,
     RunState,
@@ -40,16 +39,6 @@ def _truncate_text(text: str, max_tokens: int) -> str:
     if len(words) <= target_words:
         return text
     return " ".join(words[:target_words]) + "\n\n[truncated]"
-
-
-def _failure_summary(findings: list[Finding]) -> str:
-    failures = [f for f in findings if f.status != ExperimentStatus.SUCCESS]
-    if not failures:
-        return ""
-    lines = ["## Failed Experiments on This Path"]
-    for f in failures:
-        lines.append(f"- Exp {f.experiment_id}: {f.status} -- {f.one_liner}")
-    return "\n".join(lines)
 
 
 def build_planner_context(
@@ -202,12 +191,15 @@ def build_evaluator_context(
             raw = assessment_path.read_text()
             try:
                 full = json.loads(raw)
-                projected = {
-                    k: full[k] for k in ("outcome", "confidence", "summary", "planner_brief")
-                    if k in full
-                }
-                content = json.dumps(projected)
-            except (json.JSONDecodeError, KeyError):
+                if isinstance(full, dict):
+                    projected = {
+                        k: full[k] for k in ("outcome", "confidence", "summary", "planner_brief")
+                        if k in full
+                    }
+                    content = json.dumps(projected)
+                else:
+                    content = raw
+            except json.JSONDecodeError:
                 content = raw
             content_tokens = estimate_tokens(content)
             if content_tokens <= remaining:

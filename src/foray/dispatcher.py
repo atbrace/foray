@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json as _json
+import json
 import logging
 import os
 import shutil
@@ -164,8 +164,8 @@ def parse_stream_json_diagnostics(stdout: str) -> dict[str, str | int]:
         if not line.strip():
             continue
         try:
-            obj = _json.loads(line)
-        except (ValueError, _json.JSONDecodeError):
+            obj = json.loads(line)
+        except ValueError:
             continue
 
         # Navigate into content blocks

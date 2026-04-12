@@ -11,8 +11,6 @@ from pathlib import Path
 
 import click
 
-logger = logging.getLogger(__name__)
-
 from foray.environment import run_preflight
 from foray.context import (
     build_evaluator_context,
@@ -354,8 +352,8 @@ class Orchestrator:
         try:
             wt_path = future.result(timeout=30)
             cleanup_worktree(self.project_root, wt_path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to clean up pre-built worktree: {e}")
 
     def _run_experiment_inner(
         self, path: PathInfo, experiment_id: str, findings: list[Finding],
