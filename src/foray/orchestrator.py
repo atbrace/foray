@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import shutil
 import threading
@@ -54,7 +55,6 @@ def _crash_result(experiment_id: str, path_id: str, summary: str) -> ExperimentR
             path_id=path_id,
             status=ExperimentStatus.CRASH,
             summary=summary,
-            one_liner=summary[:100],
         ),
     )
 from foray.permissions import resolve_tools
@@ -83,6 +83,7 @@ from foray.worktree import (
     copy_artifacts,
     create_worktree,
     enforce_worktree_limit,
+    prune_worktrees,
     should_preserve_worktree,
 )
 
@@ -267,6 +268,9 @@ class Orchestrator:
                 state.current_round = round_num
                 write_run_state(self.foray_dir, state)
 
+                # Prune stale worktree refs once per round (not per experiment)
+                prune_worktrees(self.project_root)
+
                 # Pre-warm prompt cache
                 for name in ("planner", "executor", "evaluator"):
                     self._load_agent_prompt(name)
@@ -345,12 +349,26 @@ class Orchestrator:
             logger.error(f"Experiment {experiment_id} crashed: {e}", exc_info=True)
             return _crash_result(experiment_id, path.id, f"Experiment crashed: {e}")
 
+    def _cleanup_prebuilt_worktree(self, future: concurrent.futures.Future) -> None:
+        """Clean up a pre-created worktree when the experiment exits early."""
+        try:
+            wt_path = future.result(timeout=30)
+            cleanup_worktree(self.project_root, wt_path)
+        except Exception:
+            pass
+
     def _run_experiment_inner(
         self, path: PathInfo, experiment_id: str, findings: list[Finding],
         state: RunState,
     ) -> ExperimentResult:
         """Inner experiment logic — may raise."""
         path_findings = [f for f in findings if f.path_id == path.id]
+
+        # Pre-create worktree in background (overlaps with planning)
+        worktree_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        worktree_future = worktree_pool.submit(
+            create_worktree, self.project_root, experiment_id, self.foray_dir,
+        )
 
         # --- Plan ---
         _log(f"    {experiment_id} planning...", self._run_start)
@@ -397,6 +415,8 @@ class Orchestrator:
                 write_planner_crash_stub(
                     self.foray_dir, experiment_id, path.id, planner_attempts,
                 )
+                self._cleanup_prebuilt_worktree(worktree_future)
+                worktree_pool.shutdown(wait=False)
                 return _crash_result(
                     experiment_id, path.id,
                     "Planner failed to produce a plan after two attempts",
@@ -438,6 +458,8 @@ class Orchestrator:
             assessment = read_evaluation(self.foray_dir, experiment_id)
             finding_summary = assessment.summary if assessment else rationale_text[:200]
 
+            self._cleanup_prebuilt_worktree(worktree_future)
+            worktree_pool.shutdown(wait=False)
             return ExperimentResult(
                 experiment_id=experiment_id,
                 path_id=path.id,
@@ -455,7 +477,8 @@ class Orchestrator:
 
         # --- Execute ---
         _log(f"    {experiment_id} executing...", self._run_start)
-        worktree_path = create_worktree(self.project_root, experiment_id, self.foray_dir)
+        worktree_path = worktree_future.result()
+        worktree_pool.shutdown(wait=False)
         results_path = self.foray_dir / "experiments" / f"{experiment_id}_results.md"
         artifacts_dir = self.foray_dir / "experiments" / f"{experiment_id}_artifacts"
 
@@ -530,7 +553,6 @@ class Orchestrator:
                 path_id=path.id,
                 status=exp_status,
                 summary=finding_summary,
-                one_liner=finding_summary[:100],
                 planner_brief=assessment.planner_brief if assessment else "",
             ),
             assessment=assessment,

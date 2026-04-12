@@ -284,6 +284,41 @@ def test_evaluation_self_eval_caps_confidence():
     assert ev.methodology == "self-evaluated"
 
 
+def test_finding_one_liner_auto_derived():
+    """Finding with no explicit one_liner should derive it from summary[:100]."""
+    f = Finding(
+        experiment_id="001",
+        path_id="path-a",
+        status=ExperimentStatus.SUCCESS,
+        summary="A very detailed summary that goes on for quite a while and has lots of information",
+    )
+    assert f.one_liner == f.summary[:100]
+
+
+def test_finding_one_liner_preserves_explicit():
+    """Finding with an explicit distinct one_liner should keep it."""
+    f = Finding(
+        experiment_id="001",
+        path_id="path-a",
+        status=ExperimentStatus.SUCCESS,
+        summary="Full summary here",
+        one_liner="Custom one-liner",
+    )
+    assert f.one_liner == "Custom one-liner"
+
+
+def test_finding_one_liner_auto_derived_from_json():
+    """Finding deserialized from JSON without one_liner should auto-derive."""
+    raw = json.dumps({
+        "experiment_id": "001",
+        "path_id": "path-a",
+        "status": "SUCCESS",
+        "summary": "A summary that should be truncated to one hundred characters for the one liner field automatically",
+    })
+    f = Finding.model_validate_json(raw)
+    assert f.one_liner == f.summary[:100]
+
+
 def test_evaluation_independent_keeps_high_confidence():
     """Independent methodology does not cap confidence."""
     raw_json = json.dumps({

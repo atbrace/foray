@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -95,10 +96,6 @@ def build_planner_context(
                     f"{k} ({v})" for k, v in evaluation.evidence_against.items()
                 )
                 sections.append(f"  Evidence against: {pairs}")
-
-    fail_text = _failure_summary(path_findings)
-    if fail_text:
-        sections.append(f"\n{fail_text}")
 
     sections.append(
         f"\n## Run Status\n- Round: {run_state.current_round}"
@@ -202,7 +199,16 @@ def build_evaluator_context(
     for f in reversed(recent_findings):
         assessment_path = foray_dir / "experiments" / f"{f.experiment_id}_eval.json"
         if assessment_path.exists():
-            content = assessment_path.read_text()
+            raw = assessment_path.read_text()
+            try:
+                full = json.loads(raw)
+                projected = {
+                    k: full[k] for k in ("outcome", "confidence", "summary", "planner_brief")
+                    if k in full
+                }
+                content = json.dumps(projected)
+            except (json.JSONDecodeError, KeyError):
+                content = raw
             content_tokens = estimate_tokens(content)
             if content_tokens <= remaining:
                 assessment_sections.insert(0, f"\n```json\n{content}\n```")

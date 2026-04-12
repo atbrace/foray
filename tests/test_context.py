@@ -70,7 +70,7 @@ def test_planner_justification_requirement(tmp_path: Path):
     assert "Justification for Continued Investment" in ctx
 
 
-def test_planner_failure_summary(tmp_path: Path):
+def test_planner_failure_shown_in_recent(tmp_path: Path):
     (tmp_path / "vision.md").write_text("Test vision")
     (tmp_path / "experiments").mkdir()
 
@@ -80,7 +80,10 @@ def test_planner_failure_summary(tmp_path: Path):
     ]
     ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
     assert "FAILED" in ctx
-    assert "One-liner for 001" in ctx
+    # Failures appear in Recent Experiments with their status
+    assert "Exp 001: [FAILED]" in ctx
+    # No separate failure summary section
+    assert "Failed Experiments" not in ctx
 
 
 def test_executor_context_excludes_vision(tmp_path: Path):
@@ -363,6 +366,67 @@ def test_synthesizer_context_truncation(tmp_path: Path):
     ctx = build_synthesizer_context(tmp_path)
     tokens = estimate_tokens(ctx)
     assert tokens <= BUDGETS["synthesizer"], f"Synthesizer context ({tokens}) exceeds budget ({BUDGETS['synthesizer']})"
+
+
+def test_evaluator_context_projects_prior_evals(tmp_path: Path):
+    """Evaluator context should only include outcome, confidence, summary, planner_brief from prior evals."""
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "010_results.md").write_text("## Status\nSUCCESS\n\nResults here")
+
+    # Create a prior finding and its full eval JSON
+    findings = [_finding("009", "path-a")]
+    full_eval = {
+        "experiment_id": "009",
+        "path_id": "path-a",
+        "outcome": "conclusive",
+        "path_status": "open",
+        "confidence": "high",
+        "summary": "Found strong evidence for approach",
+        "planner_brief": "Tested grep approach, found 12 matches",
+        "new_questions": ["What about edge cases?"],
+        "evidence_for": {"grep-approach": "strong"},
+        "evidence_against": {"manual-search": "weak"},
+        "blocker_description": "",
+        "methodology": "independent",
+        "topic_tags": ["search", "grep"],
+    }
+    (tmp_path / "experiments" / "009_eval.json").write_text(json.dumps(full_eval))
+
+    ctx = build_evaluator_context(tmp_path, "010", _path(), findings)
+
+    # Projected fields should be present
+    assert "outcome" in ctx
+    assert "confidence" in ctx
+    assert "Found strong evidence for approach" in ctx
+
+    # Fields that should NOT be in the projected output
+    assert "new_questions" not in ctx
+    assert "evidence_for" not in ctx
+    assert "evidence_against" not in ctx
+    assert "methodology" not in ctx
+    assert "topic_tags" not in ctx
+    assert "What about edge cases?" not in ctx
+    assert "grep-approach" not in ctx
+
+
+def test_planner_no_failure_double_counting(tmp_path: Path):
+    """Failures should not appear in a separate 'Failed Experiments' section
+    when they are already shown in Recent/Previous Experiments."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [
+        _finding("001", "path-a", ExperimentStatus.FAILED),
+        _finding("002", "path-a", ExperimentStatus.SUCCESS),
+        _finding("003", "path-a", ExperimentStatus.FAILED),
+    ]
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+
+    # The redundant "Failed Experiments" section should not exist
+    assert "Failed Experiments" not in ctx
+    # But the failures should still be listed in the Recent Experiments section
+    assert "Exp 001: [FAILED]" in ctx
+    assert "Exp 003: [FAILED]" in ctx
 
 
 def test_build_exhaustion_evaluator_context_includes_rationale(tmp_path: Path):

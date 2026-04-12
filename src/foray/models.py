@@ -86,8 +86,14 @@ class Finding(BaseModel):
     path_id: str
     status: ExperimentStatus
     summary: str
-    one_liner: str
+    one_liner: str = ""
     planner_brief: str = ""
+
+    @model_validator(mode="after")
+    def _derive_one_liner(self) -> Finding:
+        if not self.one_liner:
+            self.one_liner = self.summary[:100]
+        return self
 
 
 class Evaluation(_AgentOutput):
