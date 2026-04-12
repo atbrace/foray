@@ -15,8 +15,10 @@ SUCCESS|PARTIAL|FAILED|INFEASIBLE
 
 - **SUCCESS** — completed, findings documented
 - **PARTIAL** — some work done, hit a blocker
-- **FAILED** — could not execute, documenting what was tried
-- **INFEASIBLE** — plan requires capabilities you don't have, OR research phase disproved the hypothesis
+- **FAILED** — could not execute due to environment constraints (missing dependency, missing credentials, tool not available, timeout). The hypothesis remains untested.
+- **INFEASIBLE** — research phase showed the hypothesis itself is not viable (the API doesn't support the needed operation, the library has a fundamental limitation, the approach is theoretically unsound)
+
+**FAILED vs INFEASIBLE:** If the experiment would work in a different environment (e.g., with the right packages installed or credentials configured), use FAILED, not INFEASIBLE. INFEASIBLE means the approach itself is wrong, not that the environment is missing something.
 
 ### 2. Research Phase Gate
 

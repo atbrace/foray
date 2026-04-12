@@ -47,6 +47,15 @@ When the executor served as both experimenter and evaluator of its own output (n
 - Note the methodology limitation in the summary
 - Otherwise, set `"methodology": "independent"`
 
+## Environment Failures vs Approach Failures
+
+When an experiment FAILED due to a missing environment dependency (package not installed, credentials not available, tool not on PATH), the hypothesis was **not tested, not disproven**:
+- The path should remain **open** — there is no evidence against the hypothesis
+- Do NOT count environment failures toward path blocking or inconclusive status
+- Note the environment constraint in `planner_brief` so the next experiment can work around it
+
+Only count failures toward blocked/inconclusive when the failure reveals something about the hypothesis itself (e.g., the API returned an error that proves the approach won't work, not that credentials were missing).
+
 ## Rules
 
 - Write ONLY the assessment JSON. Do not modify other files.

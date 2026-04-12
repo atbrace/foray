@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,17 +9,24 @@ from foray.state import _atomic_write
 
 TOOL_NAMES = ["claude", "uv", "git"]
 
-PACKAGE_CHECKS = [
-    ("cv2", "cv2.__version__"),
-    ("numpy", "numpy.__version__"),
-    ("PIL", "PIL.__version__"),
-    ("torch", "torch.__version__"),
-    ("sklearn", "sklearn.__version__"),
-    ("pandas", "pandas.__version__"),
-    ("matplotlib", "matplotlib.__version__"),
-    ("scipy", "scipy.__version__"),
-    ("requests", "requests.__version__"),
-]
+PACKAGE_NAMES = ["cv2", "numpy", "PIL", "torch", "sklearn", "pandas", "matplotlib", "scipy", "requests"]
+
+_CHECK_SCRIPT = """
+import importlib, importlib.util, json
+packages = %r
+results = {}
+for name in packages:
+    spec = importlib.util.find_spec(name)
+    if spec is None:
+        results[name] = None
+        continue
+    try:
+        mod = importlib.import_module(name)
+        results[name] = getattr(mod, "__version__", "installed")
+    except Exception:
+        results[name] = "error"
+print(json.dumps(results))
+"""
 
 
 def _check_tools() -> str:
@@ -32,18 +40,26 @@ def _check_tools() -> str:
 def _check_packages(project_root: Path) -> str:
     """Check package availability in the project's Python environment."""
     lines = ["## Python Packages"]
-    for name, version_expr in PACKAGE_CHECKS:
-        try:
-            result = subprocess.run(
-                ["uv", "run", "python", "-c", f"import {name}; print({version_expr})"],
-                capture_output=True, text=True, timeout=10, cwd=project_root,
-            )
-            if result.returncode == 0:
-                version = result.stdout.strip()
-                lines.append(f"- {name}: {version}")
-            else:
+    try:
+        result = subprocess.run(
+            ["uv", "run", "python", "-c", _CHECK_SCRIPT % (PACKAGE_NAMES,)],
+            capture_output=True, text=True, timeout=30, cwd=project_root,
+        )
+        if result.returncode == 0:
+            packages = json.loads(result.stdout)
+            for name in PACKAGE_NAMES:
+                version = packages.get(name)
+                if version is None:
+                    lines.append(f"- {name}: not available")
+                elif version == "error":
+                    lines.append(f"- {name}: found but failed to import")
+                else:
+                    lines.append(f"- {name}: {version}")
+        else:
+            for name in PACKAGE_NAMES:
                 lines.append(f"- {name}: not available")
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        for name in PACKAGE_NAMES:
             lines.append(f"- {name}: not available")
     return "\n".join(lines)
 

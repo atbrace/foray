@@ -53,7 +53,10 @@ def test_preflight_reports_packages(tmp_path: Path):
 
 @patch("foray.environment.subprocess.run")
 def test_preflight_reports_unavailable_package(mock_run, tmp_path: Path):
-    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ModuleNotFoundError")
+    import json as _json
+    from foray.environment import PACKAGE_NAMES
+    results = {name: None for name in PACKAGE_NAMES}
+    mock_run.return_value = MagicMock(returncode=0, stdout=_json.dumps(results) + "\n", stderr="")
     run_preflight(tmp_path)
     content = (tmp_path / "environment.md").read_text()
     assert "not available" in content
@@ -61,7 +64,10 @@ def test_preflight_reports_unavailable_package(mock_run, tmp_path: Path):
 
 @patch("foray.environment.subprocess.run")
 def test_preflight_reports_available_package(mock_run, tmp_path: Path):
-    mock_run.return_value = MagicMock(returncode=0, stdout="1.26.4\n", stderr="")
+    import json as _json
+    from foray.environment import PACKAGE_NAMES
+    results = {name: "1.26.4" for name in PACKAGE_NAMES}
+    mock_run.return_value = MagicMock(returncode=0, stdout=_json.dumps(results) + "\n", stderr="")
     run_preflight(tmp_path)
     content = (tmp_path / "environment.md").read_text()
     assert "1.26.4" in content

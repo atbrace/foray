@@ -103,6 +103,7 @@ Works in an isolated git worktree. Can install Python packages via `uv pip insta
 If previous experiments failed:
 - **PARTIAL:** Build on the partial work
 - **FAILED:** Diagnose the blocker. Plan a DIFFERENT approach
+- **FAILED (environment):** A missing dependency or credential prevented testing. Check the Environment section and either design around the constraint or choose a different approach that uses available tools.
 - **INFEASIBLE (capability):** Rescope to available executor capabilities
 - **INFEASIBLE (research):** Feasibility research showed the hypothesis is not viable. Change the hypothesis or abandon the path
 - **CRASH:** Simplify the experiment scope
