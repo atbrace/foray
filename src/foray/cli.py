@@ -76,7 +76,11 @@ def run(vision, question, hours, max_experiments, model, evaluator_model, max_tu
         sys.exit(0)
 
     orchestrator.run()
-    click.echo(f"\nExploration complete. Report at: {foray_dir}/synthesis.md")
+    synthesis_path = foray_dir / "synthesis.md"
+    if synthesis_path.exists():
+        click.echo(f"\nExploration complete. Report at: {synthesis_path}")
+    else:
+        click.echo("\nExploration complete. Warning: synthesis report was not generated.")
 
 
 @main.command()
@@ -117,4 +121,8 @@ def resume():
     orchestrator = Orchestrator(Path.cwd(), state.config)
     orchestrator.foray_dir = foray_dir
     orchestrator.run()
-    click.echo(f"\nExploration complete. Report at: {foray_dir}/synthesis.md")
+    synthesis_path = foray_dir / "synthesis.md"
+    if synthesis_path.exists():
+        click.echo(f"\nExploration complete. Report at: {synthesis_path}")
+    else:
+        click.echo("\nExploration complete. Warning: synthesis report was not generated.")

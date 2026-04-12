@@ -10,6 +10,8 @@ from pathlib import Path
 
 import click
 
+logger = logging.getLogger(__name__)
+
 from foray.environment import run_preflight
 from foray.context import (
     build_evaluator_context,
@@ -23,9 +25,11 @@ from foray.dispatcher import (
     dispatch_executor,
     parse_experiment_status,
     write_crash_stub,
+    write_planner_crash_stub,
 )
 from foray.models import (
     Confidence,
+    DispatchResult,
     Evaluation,
     ExperimentResult,
     ExperimentStatus,
@@ -356,7 +360,8 @@ class Orchestrator:
         )
         planner_template = self._load_agent_prompt("planner")
         plan_path = self.foray_dir / "experiments" / f"{experiment_id}_plan.md"
-        dispatch(
+        planner_attempts: list[DispatchResult] = []
+        planner_result = dispatch(
             prompt=(
                 f"{planner_template}\n\n---\n\n{planner_ctx}\n\n---\n\n"
                 f"Write experiment plan to: {plan_path}"
@@ -366,10 +371,16 @@ class Orchestrator:
             max_turns=self.config.max_turns,
             tools=["Read", "Glob", "Grep", "Write"],
         )
+        planner_attempts.append(planner_result)
 
         if not plan_path.exists():
+            logger.warning(
+                f"{experiment_id} planner attempt 1 failed: "
+                f"exit_code={planner_result.exit_code}, "
+                f"stderr={planner_result.stderr[:200]!r}"
+            )
             _log(f"    {experiment_id} planner produced no plan — retrying simplified", self._run_start)
-            dispatch(
+            retry_result = dispatch(
                 prompt=(
                     f"{planner_template}\n\nPath: {path.id}\n"
                     f"Description: {path.description}\n\n"
@@ -380,8 +391,12 @@ class Orchestrator:
                 max_turns=self.config.max_turns,
                 tools=["Read", "Glob", "Grep", "Write"],
             )
+            planner_attempts.append(retry_result)
             if not plan_path.exists():
                 _log(f"    {experiment_id} planner failed twice — marking CRASH", self._run_start)
+                write_planner_crash_stub(
+                    self.foray_dir, experiment_id, path.id, planner_attempts,
+                )
                 return _crash_result(
                     experiment_id, path.id,
                     "Planner failed to produce a plan after two attempts",
@@ -555,17 +570,31 @@ class Orchestrator:
         _log("Synthesizing final report...", self._run_start)
         template = self._load_agent_prompt("synthesizer")
         ctx = build_synthesizer_context(self.foray_dir)
-        dispatch(
-            prompt=(
-                f"{template}\n\n---\n\n{ctx}\n\n---\n\n"
-                f"Write synthesis report to: {self.foray_dir / 'synthesis.md'}\n"
-                f"Read individual results from: {self.foray_dir / 'experiments'}/"
-            ),
-            workdir=self.project_root,
-            model=self.config.model,
-            max_turns=self.config.max_turns,
-            tools=["Read", "Glob", "Write"],
+        synthesis_path = self.foray_dir / "synthesis.md"
+        prompt = (
+            f"{template}\n\n---\n\n{ctx}\n\n---\n\n"
+            f"Write synthesis report to: {synthesis_path}\n"
+            f"Read individual results from: {self.foray_dir / 'experiments'}/"
         )
+
+        for attempt in range(2):
+            result = dispatch(
+                prompt=prompt,
+                workdir=self.project_root,
+                model=self.config.model,
+                max_turns=self.config.max_turns,
+                tools=["Read", "Glob", "Write"],
+            )
+            if synthesis_path.exists():
+                return
+            stderr_snippet = (result.stderr or "")[:500]
+            _log(
+                f"Synthesizer attempt {attempt + 1} failed "
+                f"(exit={result.exit_code}): {stderr_snippet}",
+                self._run_start,
+            )
+
+        logger.warning("Synthesis failed after 2 attempts — no report generated")
 
     def _install_agent_prompts(self) -> None:
         bundled_dir = Path(__file__).parent / "agents"

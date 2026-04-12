@@ -266,3 +266,66 @@ def test_synthesis_runs_after_exception_in_merge(
     except RuntimeError:
         pass
     mock_synth.assert_called_once()
+
+
+# --- Synthesis retry and failure ---
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.build_synthesizer_context", return_value="ctx")
+def test_synthesis_retries_on_failure(mock_ctx, mock_dispatch, tmp_path):
+    """Synthesis retries once when first dispatch fails to create synthesis.md."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"synthesizer": "synth prompt"}
+
+    synthesis_path = foray_dir / "synthesis.md"
+
+    fail_result = DispatchResult(exit_code=1, stdout="", stderr="agent crashed", elapsed_seconds=5.0)
+    ok_result = DispatchResult(exit_code=0, stdout="", stderr="", elapsed_seconds=10.0)
+
+    call_count = 0
+
+    def side_effect(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return fail_result
+        # Second call: create the file and succeed
+        synthesis_path.write_text("# Report")
+        return ok_result
+
+    mock_dispatch.side_effect = side_effect
+
+    orch._run_synthesis()
+
+    assert mock_dispatch.call_count == 2
+    assert synthesis_path.exists()
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.build_synthesizer_context", return_value="ctx")
+def test_synthesis_logs_warning_on_double_failure(mock_ctx, mock_dispatch, tmp_path, caplog):
+    """Both synthesis attempts fail — warning is logged, no exception raised."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"synthesizer": "synth prompt"}
+
+    fail_result = DispatchResult(exit_code=1, stdout="", stderr="agent crashed", elapsed_seconds=5.0)
+    mock_dispatch.return_value = fail_result
+
+    with caplog.at_level(logging.WARNING, logger="foray.orchestrator"):
+        orch._run_synthesis()  # Should not raise
+
+    assert mock_dispatch.call_count == 2
+    assert not (foray_dir / "synthesis.md").exists()
+    warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Synthesis failed after 2 attempts" in m for m in warning_msgs)

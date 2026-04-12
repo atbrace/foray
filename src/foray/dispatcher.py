@@ -220,6 +220,35 @@ def write_crash_stub(
     _atomic_write(results_path, stub)
 
 
+def write_planner_crash_stub(
+    foray_dir: Path,
+    experiment_id: str,
+    path_id: str,
+    attempts: list[DispatchResult],
+) -> None:
+    """Write crash stub when planner fails to produce a plan."""
+    from foray.state import _atomic_write
+
+    sections = [
+        "## Status\nCRASH\n",
+        "## What Happened\n"
+        f"The planner failed to produce a plan after {len(attempts)} attempt(s).\n",
+        f"- Path: {path_id}\n",
+    ]
+    for i, attempt in enumerate(attempts, 1):
+        stdout_tail = attempt.stdout[-3000:] if attempt.stdout else "(empty)"
+        sections.append(
+            f"\n## Attempt {i}\n"
+            f"- Exit code: {attempt.exit_code}\n"
+            f"- Elapsed: {attempt.elapsed_seconds:.1f}s\n\n"
+            f"### Stderr\n```\n{attempt.stderr[:2000]}\n```\n\n"
+            f"### Agent Output (last 3000 chars)\n```\n{stdout_tail}\n```\n"
+        )
+
+    stub_path = foray_dir / "experiments" / f"{experiment_id}_plan_crash.md"
+    _atomic_write(stub_path, "\n".join(sections))
+
+
 def is_exhaustion_plan(plan_path: Path) -> bool:
     """Check if a plan file is an exhaustion signal rather than an experiment plan."""
     if not plan_path.exists():
@@ -237,7 +266,7 @@ def parse_experiment_status(results_path: Path) -> ExperimentStatus:
 
     for line in results_path.read_text().splitlines():
         try:
-            return ExperimentStatus(line.strip())
+            return ExperimentStatus(line.strip().split()[0])
         except ValueError:
             continue
 

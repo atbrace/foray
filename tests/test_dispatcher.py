@@ -7,6 +7,7 @@ from foray.dispatcher import (
     is_exhaustion_plan,
     parse_experiment_status,
     write_crash_stub,
+    write_planner_crash_stub,
 )
 from foray.models import DispatchResult, ExperimentStatus
 
@@ -111,6 +112,26 @@ def test_parse_status_no_header(tmp_path):
     p = tmp_path / "results.md"
     p.write_text("Some text without a status header")
     assert parse_experiment_status(p) == ExperimentStatus.CRASH
+
+
+def test_parse_status_with_annotation(tmp_path):
+    p = tmp_path / "results.md"
+    p.write_text("## Status\nFAILED (hypothesis disproven)\n\nDetails")
+    assert parse_experiment_status(p) == ExperimentStatus.FAILED
+
+
+def test_parse_status_with_long_annotation(tmp_path):
+    p = tmp_path / "results.md"
+    p.write_text(
+        "## Status\nPARTIAL (some metrics met, others not — see details below)\n\nDetails"
+    )
+    assert parse_experiment_status(p) == ExperimentStatus.PARTIAL
+
+
+def test_parse_status_infeasible_with_reason(tmp_path):
+    p = tmp_path / "results.md"
+    p.write_text("## Status\nINFEASIBLE — dependencies unavailable\n\nDetails")
+    assert parse_experiment_status(p) == ExperimentStatus.INFEASIBLE
 
 
 def test_write_crash_stub(tmp_path):
@@ -262,3 +283,56 @@ def test_normal_plan_not_detected_as_exhaustion(tmp_path):
 def test_missing_plan_not_detected_as_exhaustion(tmp_path):
     plan = tmp_path / "nonexistent.md"
     assert is_exhaustion_plan(plan) is False
+
+
+def test_write_planner_crash_stub(tmp_path):
+    """write_planner_crash_stub writes a crash file with details from both attempts."""
+    (tmp_path / "experiments").mkdir()
+
+    attempts = [
+        DispatchResult(exit_code=1, stdout="attempt 1 output", stderr="err1", elapsed_seconds=5.0),
+        DispatchResult(exit_code=0, stdout="attempt 2 output longer", stderr="err2", elapsed_seconds=8.3),
+    ]
+    write_planner_crash_stub(tmp_path, "exp_007", "path_alpha", attempts)
+
+    stub_path = tmp_path / "experiments" / "exp_007_plan_crash.md"
+    assert stub_path.exists()
+    stub = stub_path.read_text()
+
+    # Contains status and explanation
+    assert "CRASH" in stub
+    assert "2 attempt(s)" in stub
+    assert "path_alpha" in stub
+
+    # Attempt 1 details
+    assert "Attempt 1" in stub
+    assert "Exit code: 1" in stub
+    assert "5.0s" in stub
+    assert "err1" in stub
+    assert "attempt 1 output" in stub
+
+    # Attempt 2 details
+    assert "Attempt 2" in stub
+    assert "Exit code: 0" in stub
+    assert "8.3s" in stub
+    assert "err2" in stub
+    assert "attempt 2 output longer" in stub
+
+
+def test_write_planner_crash_stub_single_attempt(tmp_path):
+    """write_planner_crash_stub works with a single attempt."""
+    (tmp_path / "experiments").mkdir()
+
+    attempts = [
+        DispatchResult(exit_code=-1, stdout="", stderr="timeout", elapsed_seconds=600.0),
+    ]
+    write_planner_crash_stub(tmp_path, "exp_001", "path_beta", attempts)
+
+    stub_path = tmp_path / "experiments" / "exp_001_plan_crash.md"
+    stub = stub_path.read_text()
+
+    assert "1 attempt(s)" in stub
+    assert "path_beta" in stub
+    assert "Exit code: -1" in stub
+    assert "(empty)" in stub  # empty stdout
+    assert "timeout" in stub
