@@ -35,9 +35,16 @@ Write exactly this JSON structure to the specified path:
 
 ## Confidence Levels
 
-- **high** — multiple experiments converge, measurable evidence
+- **high** — multiple experiments converge, measurable evidence, validated on real-world inputs
 - **medium** — evidence with caveats
 - **low** — preliminary, single experiment, or mixed signals
+
+### Confidence Modifiers
+
+- **Synthetic/rendered data only:** If the path hypothesis involves real-world inputs (photos, user data, live APIs) but the experiment only tested on synthetic/generated data, cap confidence at **medium** regardless of how clean the results look
+- **Single real-world example:** Cap at **medium** if variation across object types, conditions, or inputs is untested
+- **Multiple diverse real-world examples:** **high** is appropriate
+- **Convergence across self-evaluated experiments:** Upgrade from **low** to **medium** if 2+ self-evaluated experiments independently reach the same conclusion
 
 ## Self-Evaluation Detection
 
