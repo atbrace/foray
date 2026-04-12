@@ -16,11 +16,15 @@ Write a markdown plan to the specified path:
 What this experiment tests, specifically.
 
 ## Research Phase (REQUIRED — executor does this FIRST)
-1. **Feasibility check:** WebSearch/WebFetch queries to run before any implementation.
+1. **Dependency check (REQUIRED):** Before planning, check the Environment section in your context (if available):
+   - If the experiment requires a Python package, verify it's listed as available. If not, either design the experiment without it or declare INFEASIBLE.
+   - If the experiment requires downloading large files or models, budget download time (assume 1MB/s) and verify it fits within the 10-minute timeout.
+   - If a required dependency is unavailable, do NOT plan an experiment that will fail at import time.
+2. **Feasibility check:** WebSearch/WebFetch queries to run before any implementation.
    - What to search for (docs, limitations, known issues, prior art)
    - What a "viable" answer looks like vs. a "not viable" answer
-2. **Minimal validation:** The simplest possible test to confirm feasibility (1 API call, 1 command, 1 file read). Describe the exact test and expected result.
-3. **Gate:** If research or validation shows the hypothesis is not viable, the executor MUST:
+3. **Minimal validation:** The simplest possible test to confirm feasibility (1 API call, 1 command, 1 file read). Describe the exact test and expected result.
+4. **Gate:** If research or validation shows the hypothesis is not viable, the executor MUST:
    - Write results with status INFEASIBLE
    - Include the evidence found (links, error messages, documentation quotes)
    - Stop immediately — do NOT proceed to implementation
