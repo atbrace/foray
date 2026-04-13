@@ -14,9 +14,10 @@ from foray.models import (
     Priority,
     RunConfig,
     RunState,
+    TimingRecord,
 )
 from foray.orchestrator import Orchestrator, _format_seconds, apply_guardrails
-from foray.state import init_directory
+from foray.state import append_timing, init_directory
 
 
 def _path(id: str = "a") -> PathInfo:
@@ -734,10 +735,10 @@ def test_synthesis_includes_timing_stats(mock_ctx, mock_dispatch, tmp_path):
     orch._run_start = 0.0
     orch._prompt_cache = {"synthesizer": "synth prompt"}
 
-    orch._record_timing("planner", 3.0)
-    orch._record_timing("planner", 4.0)
-    orch._record_timing("executor", 45.0)
-    orch._record_timing("evaluator", 9.0)
+    append_timing(foray_dir, TimingRecord(experiment_id="001", agent_type="planner", elapsed_seconds=3.0))
+    append_timing(foray_dir, TimingRecord(experiment_id="002", agent_type="planner", elapsed_seconds=4.0))
+    append_timing(foray_dir, TimingRecord(experiment_id="001", agent_type="executor", elapsed_seconds=45.0))
+    append_timing(foray_dir, TimingRecord(experiment_id="001", agent_type="evaluator", elapsed_seconds=9.0))
 
     synthesis_path = foray_dir / "synthesis.md"
 

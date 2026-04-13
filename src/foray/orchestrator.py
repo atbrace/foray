@@ -21,6 +21,7 @@ from foray.dispatcher import (
     dispatch,
     dispatch_executor,
     parse_experiment_status,
+    parse_stream_json_tokens,
     write_crash_stub,
     write_planner_crash_stub,
 )
@@ -38,6 +39,7 @@ from foray.models import (
     RoundOutcome,
     RunConfig,
     RunState,
+    TimingRecord,
 )
 from foray.permissions import resolve_tools
 from foray.scheduler import (
@@ -50,12 +52,14 @@ from foray.scheduler import (
 )
 from foray.state import (
     add_finding,
+    append_timing,
     init_directory,
     read_evaluation,
     read_findings,
     read_paths,
     read_rounds,
     read_run_state,
+    read_timing,
     write_paths,
     write_rounds,
     write_run_state,
@@ -444,6 +448,10 @@ class Orchestrator:
         )
         planner_attempts.append(planner_result)
         self._record_timing("planner", planner_result.elapsed_seconds)
+        append_timing(self.foray_dir, TimingRecord(
+            experiment_id=experiment_id, agent_type="planner",
+            elapsed_seconds=planner_result.elapsed_seconds,
+        ))
         _log(f"    {experiment_id} planned ({_format_seconds(planner_result.elapsed_seconds)})", self._run_start)
 
         if not plan_path.exists():
@@ -511,6 +519,10 @@ class Orchestrator:
                 tools=["Read", "Write"],
             )
             self._record_timing("evaluator", exhaust_eval_result.elapsed_seconds)
+            append_timing(self.foray_dir, TimingRecord(
+                experiment_id=experiment_id, agent_type="evaluator",
+                elapsed_seconds=exhaust_eval_result.elapsed_seconds,
+            ))
             _log(f"    {experiment_id} evaluated ({_format_seconds(exhaust_eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             finding_summary = assessment.summary if assessment else rationale_text[:200]
@@ -561,6 +573,14 @@ class Orchestrator:
             foray_dir=self.foray_dir,
         )
         self._record_timing("executor", exec_result.elapsed_seconds)
+        tokens = parse_stream_json_tokens(exec_result.stdout)
+        append_timing(self.foray_dir, TimingRecord(
+            experiment_id=experiment_id, agent_type="executor",
+            elapsed_seconds=exec_result.elapsed_seconds,
+            input_tokens=tokens["input_tokens"],
+            output_tokens=tokens["output_tokens"],
+            cost_usd=tokens["cost_usd"],
+        ))
         _log(f"    {experiment_id} executed ({_format_seconds(exec_result.elapsed_seconds)})", self._run_start)
 
         if not results_path.exists():
@@ -592,6 +612,10 @@ class Orchestrator:
                 tools=["Read", "Write"],
             )
             self._record_timing("evaluator", eval_result.elapsed_seconds)
+            append_timing(self.foray_dir, TimingRecord(
+                experiment_id=experiment_id, agent_type="evaluator",
+                elapsed_seconds=eval_result.elapsed_seconds,
+            ))
             _log(f"    {experiment_id} evaluated ({_format_seconds(eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             if assessment:
@@ -666,20 +690,31 @@ class Orchestrator:
         return updated_path
 
     def _format_timing_stats(self) -> str:
-        """Format aggregate timing stats per agent type for synthesis context."""
-        if not self._agent_timing:
+        """Format aggregate timing stats from persisted timing records."""
+        records = read_timing(self.foray_dir)
+        if not records:
             return ""
+        by_type: dict[str, list[TimingRecord]] = {}
+        for r in records:
+            by_type.setdefault(r.agent_type, []).append(r)
         lines = ["## Agent Timing Stats"]
-        for agent_type in sorted(self._agent_timing):
-            times = self._agent_timing[agent_type]
-            total = sum(times)
-            count = len(times)
+        total_cost = sum(r.cost_usd for r in records)
+        total_tokens_in = sum(r.input_tokens for r in records)
+        total_tokens_out = sum(r.output_tokens for r in records)
+        for agent_type in sorted(by_type):
+            recs = by_type[agent_type]
+            total = sum(r.elapsed_seconds for r in recs)
+            count = len(recs)
             avg = total / count
             lines.append(
                 f"- {agent_type}: {count} call(s), "
                 f"{_format_seconds(total)} total, "
                 f"{_format_seconds(avg)} avg"
             )
+        if total_tokens_in > 0 or total_tokens_out > 0:
+            lines.append(f"\n**Token usage:** {total_tokens_in:,} input, {total_tokens_out:,} output")
+        if total_cost > 0:
+            lines.append(f"**Estimated cost:** ${total_cost:.2f}")
         return "\n".join(lines)
 
     def _run_synthesis(self) -> None:
