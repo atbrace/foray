@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import os
 import sys
-import time
 from pathlib import Path
 
 import click
@@ -29,7 +29,8 @@ def main():
 @click.option("--output", type=str, default=".foray/", show_default=True, help="Output directory")
 @click.option("--allow", multiple=True, help="Additional tools to enable")
 @click.option("--deny", multiple=True, help="Tools to disable")
-def run(vision, question, hours, max_experiments, model, evaluator_model, max_turns, max_concurrent, output, allow, deny):
+@click.option("--yes", "-y", is_flag=True, default=False, help="Skip path approval prompt")
+def run(vision, question, hours, max_experiments, model, evaluator_model, max_turns, max_concurrent, output, allow, deny, yes):
     """Start an exploration run."""
     project_root = Path.cwd()
 
@@ -54,6 +55,7 @@ def run(vision, question, hours, max_experiments, model, evaluator_model, max_tu
         allow_tools=list(allow),
         deny_tools=list(deny),
         max_concurrent=max_concurrent,
+        yes=yes,
     )
 
     orchestrator = Orchestrator(project_root, config)
@@ -64,16 +66,30 @@ def run(vision, question, hours, max_experiments, model, evaluator_model, max_tu
     for p in paths:
         click.echo(f"  [{p.priority}] {p.id}: {p.description}")
 
-    countdown = 5 if question else 10
-    click.echo(f"\nStarting in {countdown}s (Ctrl+C to abort)...")
-    try:
-        for i in range(countdown, 0, -1):
-            click.echo(f"  {i}...", nl=False)
-            time.sleep(1)
+    if yes:
+        click.echo("\nStarting run (--yes flag, skipping approval)...")
+    else:
         click.echo()
-    except KeyboardInterrupt:
-        click.echo("\nAborted. Edit paths at .foray/state/paths.json and re-run.")
-        sys.exit(0)
+        while True:
+            choice = click.prompt(
+                "Proceed with these paths? [Y/n/e]",
+                default="y", show_default=False,
+            ).strip().lower()
+            if choice in ("y", "yes", ""):
+                break
+            elif choice in ("n", "no"):
+                click.echo("Aborted. Edit paths at .foray/state/paths.json and re-run.")
+                sys.exit(0)
+            elif choice in ("e", "edit"):
+                paths_file = foray_dir / "state" / "paths.json"
+                click.edit(filename=str(paths_file))
+                paths = read_paths(foray_dir)
+                click.echo(f"\nUpdated — {len(paths)} exploration paths:")
+                for p in paths:
+                    click.echo(f"  [{p.priority}] {p.id}: {p.description}")
+                click.echo()
+            else:
+                click.echo("Please enter Y, n, or e.")
 
     orchestrator.run()
     synthesis_path = foray_dir / "synthesis.md"

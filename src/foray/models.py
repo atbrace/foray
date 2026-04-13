@@ -137,6 +137,7 @@ class RunConfig(BaseModel):
     allow_tools: list[str] = Field(default_factory=list)
     deny_tools: list[str] = Field(default_factory=list)
     max_concurrent: int = 3
+    yes: bool = False
 
 
 class RunState(BaseModel):
