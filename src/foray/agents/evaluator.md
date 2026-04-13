@@ -20,7 +20,11 @@ Write exactly this JSON structure to the specified path:
   "evidence_for": {"approach": "strong|moderate|weak"},
   "evidence_against": {"approach": "strong|moderate|weak"},
   "blocker_description": "If recommending blocked, describe the blocker",
-  "methodology": "independent|self-evaluated"
+  "methodology": "independent|self-evaluated",
+  "failure_type": "environment|approach|<empty>",
+  "independent_verification": "What independent tool/benchmark/test verified the result, if any",
+  "hypothesis_alignment": "aligned|partial|diverged",
+  "divergence_note": "If partial or diverged, explain how findings differ from the hypothesis"
 }
 ```
 
@@ -54,12 +58,24 @@ When the executor served as both experimenter and evaluator of its own output (n
 - Note the methodology limitation in the summary
 - Otherwise, set `"methodology": "independent"`
 
+## Independent Verification Override
+
+When a **single experiment** produces a definitive answer verified by an independent tool, benchmark, or test suite (not self-evaluation):
+- Set `"methodology": "independent"`
+- Set `"independent_verification"` to a specific description of what verified the result (e.g., "trimesh exact-match comparison returned 0 delta", "pytest suite: 47/47 passed", "curl returned expected 200 with correct payload")
+- You MAY recommend `"path_status": "resolved"` even with only one experiment
+
+The verification must be **specific and cited** — "I verified it works" is not independent verification. Name the tool, the metric, and the result.
+
 ## Environment Failures vs Approach Failures
 
 When an experiment FAILED due to a missing environment dependency (package not installed, credentials not available, tool not on PATH), the hypothesis was **not tested, not disproven**:
-- The path should remain **open** — there is no evidence against the hypothesis
-- Do NOT count environment failures toward path blocking or inconclusive status
-- Note the environment constraint in `planner_brief` so the next experiment can work around it
+- Set `"failure_type": "environment"` in your assessment
+- For approach failures (the hypothesis was tested and failed), set `"failure_type": "approach"`
+
+**Single environment failure:** The path should remain **open** — there is no evidence against the hypothesis. Note the environment constraint in `planner_brief` so the next experiment can work around it.
+
+**Repeated environment failures (2+ experiments hit the same constraint):** The environment cannot support this path. Recommend **blocked** with `blocker_description` explaining the infrastructure constraint. Do not keep the path open for retries that will hit the same wall.
 
 Only count failures toward blocked/inconclusive when the failure reveals something about the hypothesis itself (e.g., the API returned an error that proves the approach won't work, not that credentials were missing).
 
@@ -71,3 +87,15 @@ Only count failures toward blocked/inconclusive when the failure reveals somethi
 - Briefly assess alignment with the path hypothesis: advancing the goal or drifting?
 - `new_questions` must be specific and testable within the executor's capabilities. "Does it work on more inputs?" is not a new question — it's a repetition. "Does the circle-fitting heuristic misclassify ellipses as circles?" is a new question.
 - Do not propose new_questions that are variations of already-answered questions. If 3 experiments confirmed an approach works on diverse inputs, "try another input" is not a new question.
+
+## Hypothesis Alignment Check
+
+Before recommending path status, compare the experiment's actual findings to the path's original hypothesis:
+
+- **aligned** — the experiment directly tested the hypothesis and produced evidence for or against it
+- **partial** — the experiment tested a related but narrower question (e.g., tested one sub-case of the hypothesis)
+- **diverged** — the experiment answered a fundamentally different question than the hypothesis asked
+
+Set `"hypothesis_alignment"` and, if partial or diverged, explain in `"divergence_note"`.
+
+**Critical:** If alignment is "diverged", do NOT recommend "resolved". The path question has not been answered — it has been replaced with a different question. Recommend "open" so the next experiment can address the actual hypothesis.
