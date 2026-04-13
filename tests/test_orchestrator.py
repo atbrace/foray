@@ -17,7 +17,7 @@ from foray.models import (
     TimingRecord,
 )
 from foray.orchestrator import Orchestrator, _format_seconds, apply_guardrails
-from foray.state import append_timing, init_directory
+from foray.state import append_timing, init_directory, read_timing
 
 
 def _path(id: str = "a") -> PathInfo:
@@ -711,16 +711,22 @@ def test_experiment_logs_dispatch_elapsed(
 def test_timing_accumulation(tmp_path):
     """Orchestrator accumulates per-agent-type dispatch timing (GH-8)."""
     config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
     orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
 
-    orch._record_timing("planner", 3.0)
-    orch._record_timing("executor", 45.0)
-    orch._record_timing("evaluator", 9.0)
-    orch._record_timing("planner", 4.0)
+    orch._persist_timing(TimingRecord(experiment_id="001", agent_type="planner", elapsed_seconds=3.0))
+    orch._persist_timing(TimingRecord(experiment_id="001", agent_type="executor", elapsed_seconds=45.0))
+    orch._persist_timing(TimingRecord(experiment_id="001", agent_type="evaluator", elapsed_seconds=9.0))
+    orch._persist_timing(TimingRecord(experiment_id="002", agent_type="planner", elapsed_seconds=4.0))
 
     assert orch._agent_timing["planner"] == [3.0, 4.0]
     assert orch._agent_timing["executor"] == [45.0]
     assert orch._agent_timing["evaluator"] == [9.0]
+
+    records = read_timing(foray_dir)
+    assert len(records) == 4
 
 
 @patch("foray.orchestrator.dispatch")

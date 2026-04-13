@@ -211,10 +211,11 @@ class Orchestrator:
         self._agent_timing: dict[str, list[float]] = {}
         self._timing_lock = threading.Lock()
 
-    def _record_timing(self, agent_type: str, elapsed: float) -> None:
-        """Record a dispatch elapsed time for aggregate stats."""
+    def _persist_timing(self, record: TimingRecord) -> None:
+        """Record timing in-memory and persist to disk (thread-safe)."""
         with self._timing_lock:
-            self._agent_timing.setdefault(agent_type, []).append(elapsed)
+            self._agent_timing.setdefault(record.agent_type, []).append(record.elapsed_seconds)
+            append_timing(self.foray_dir, record)
 
     def init(self) -> Path:
         """Initialize .foray/ directory, dispatch initializer, return foray_dir."""
@@ -253,7 +254,10 @@ class Orchestrator:
             max_turns=self.config.max_turns,
             tools=["Read", "Glob", "Grep", "Bash", "Write"],
         )
-        self._record_timing("initializer", result.elapsed_seconds)
+        self._persist_timing(TimingRecord(
+            experiment_id="init", agent_type="initializer",
+            elapsed_seconds=result.elapsed_seconds,
+        ))
         if result.exit_code != 0:
             _log(f"Initializer failed (exit {result.exit_code})")
             if result.stderr:
@@ -447,8 +451,7 @@ class Orchestrator:
             tools=["Read", "Glob", "Grep", "Write"],
         )
         planner_attempts.append(planner_result)
-        self._record_timing("planner", planner_result.elapsed_seconds)
-        append_timing(self.foray_dir, TimingRecord(
+        self._persist_timing(TimingRecord(
             experiment_id=experiment_id, agent_type="planner",
             elapsed_seconds=planner_result.elapsed_seconds,
         ))
@@ -473,6 +476,10 @@ class Orchestrator:
                 tools=["Read", "Glob", "Grep", "Write"],
             )
             planner_attempts.append(retry_result)
+            self._persist_timing(TimingRecord(
+                experiment_id=experiment_id, agent_type="planner",
+                elapsed_seconds=retry_result.elapsed_seconds,
+            ))
             if not plan_path.exists():
                 _log(f"    {experiment_id} planner failed twice — marking CRASH", self._run_start)
                 write_planner_crash_stub(
@@ -518,8 +525,7 @@ class Orchestrator:
                 max_turns=6,
                 tools=["Read", "Write"],
             )
-            self._record_timing("evaluator", exhaust_eval_result.elapsed_seconds)
-            append_timing(self.foray_dir, TimingRecord(
+            self._persist_timing(TimingRecord(
                 experiment_id=experiment_id, agent_type="evaluator",
                 elapsed_seconds=exhaust_eval_result.elapsed_seconds,
             ))
@@ -572,9 +578,8 @@ class Orchestrator:
             tools=self.tools,
             foray_dir=self.foray_dir,
         )
-        self._record_timing("executor", exec_result.elapsed_seconds)
         tokens = parse_stream_json_tokens(exec_result.stdout)
-        append_timing(self.foray_dir, TimingRecord(
+        self._persist_timing(TimingRecord(
             experiment_id=experiment_id, agent_type="executor",
             elapsed_seconds=exec_result.elapsed_seconds,
             input_tokens=tokens["input_tokens"],
@@ -611,8 +616,7 @@ class Orchestrator:
                 max_turns=6,
                 tools=["Read", "Write"],
             )
-            self._record_timing("evaluator", eval_result.elapsed_seconds)
-            append_timing(self.foray_dir, TimingRecord(
+            self._persist_timing(TimingRecord(
                 experiment_id=experiment_id, agent_type="evaluator",
                 elapsed_seconds=eval_result.elapsed_seconds,
             ))
