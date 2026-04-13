@@ -24,7 +24,7 @@ def main():
 @click.option("--max-experiments", type=int, default=50, show_default=True, help="Experiment cap")
 @click.option("--model", type=str, default="claude-sonnet-4-6", show_default=True)
 @click.option("--evaluator-model", type=str, default="claude-opus-4-6", show_default=True, help="Model for evaluator agent")
-@click.option("--max-turns", type=int, default=30, show_default=True)
+@click.option("--max-turns", type=int, default=50, show_default=True, help="Max turns for executor agents")
 @click.option("--max-concurrent", type=int, default=3, show_default=True, help="Max parallel experiments per round")
 @click.option("--output", type=str, default=".foray/", show_default=True, help="Output directory")
 @click.option("--allow", multiple=True, help="Additional tools to enable")

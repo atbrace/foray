@@ -139,7 +139,7 @@ class RunConfig(BaseModel):
     max_experiments: int = 50
     model: str = "claude-sonnet-4-6"
     evaluator_model: str = "claude-opus-4-6"
-    max_turns: int = 30
+    max_turns: int = 50
     output_dir: str = ".foray/"
     allow_tools: list[str] = Field(default_factory=list)
     deny_tools: list[str] = Field(default_factory=list)

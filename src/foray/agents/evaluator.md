@@ -55,6 +55,7 @@ Write exactly this JSON structure to the specified path:
 
 ### Confidence Modifiers
 
+- **Small sample size:** If the experiment produced fewer than 10 independent measurement cycles (training updates, evaluation episodes, benchmark iterations), cap confidence at **low**. Noise dominates at small N. Between 10-20 cycles, cap at **medium**. Reserve **high** for 20+ cycles with a clear trend.
 - **Synthetic/rendered data only:** If the path hypothesis involves real-world inputs (photos, user data, live APIs) but the experiment only tested on synthetic/generated data, cap confidence at **medium** regardless of how clean the results look
 - **Single real-world example:** Cap at **medium** if variation across object types, conditions, or inputs is untested
 - **Multiple diverse real-world examples:** **high** is appropriate

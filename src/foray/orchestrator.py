@@ -78,6 +78,12 @@ from foray.worktree import (
 
 logger = logging.getLogger(__name__)
 
+# Per-agent-type turn limits. Executor uses config.max_turns (user-configurable, default 50).
+_INITIALIZER_MAX_TURNS = 20
+_PLANNER_MAX_TURNS = 20
+_SYNTHESIZER_MAX_TURNS = 20
+# Evaluator and strategist keep hardcoded max_turns=6 at their call sites.
+
 _print_lock = threading.Lock()
 
 _STATUS_SYMBOLS = {
@@ -268,7 +274,7 @@ class Orchestrator:
             prompt=prompt,
             workdir=self.project_root,
             model=self.config.model,
-            max_turns=self.config.max_turns,
+            max_turns=_INITIALIZER_MAX_TURNS,
             tools=["Read", "Glob", "Grep", "Bash", "Write"],
             output_format="stream-json",
         )
@@ -465,7 +471,7 @@ class Orchestrator:
             ),
             workdir=self.project_root,
             model=self.config.model,
-            max_turns=self.config.max_turns,
+            max_turns=_PLANNER_MAX_TURNS,
             tools=["Read", "Glob", "Grep", "Write"],
             output_format="stream-json",
         )
@@ -488,7 +494,7 @@ class Orchestrator:
                 ),
                 workdir=self.project_root,
                 model=self.config.model,
-                max_turns=self.config.max_turns,
+                max_turns=_PLANNER_MAX_TURNS,
                 tools=["Read", "Glob", "Grep", "Write"],
                 output_format="stream-json",
             )
@@ -838,7 +844,7 @@ class Orchestrator:
                 prompt=prompt,
                 workdir=self.project_root,
                 model=self.config.model,
-                max_turns=self.config.max_turns,
+                max_turns=_SYNTHESIZER_MAX_TURNS,
                 tools=["Read", "Glob", "Write"],
                 output_format="stream-json",
             )

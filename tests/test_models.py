@@ -105,7 +105,7 @@ def test_run_config_defaults():
     assert config.hours == 8.0
     assert config.max_experiments == 50
     assert config.model == "claude-sonnet-4-6"
-    assert config.max_turns == 30
+    assert config.max_turns == 50
 
 
 def test_run_state_roundtrip():
