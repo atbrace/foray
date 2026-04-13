@@ -123,6 +123,40 @@ def test_exhausted_path_can_be_inconclusive():
     ) == PathStatus.INCONCLUSIVE
 
 
+def test_exhausted_rejected_resolved_falls_to_inconclusive():
+    """Bug fix: EXHAUSTED + guardrails rejecting RESOLVED should be INCONCLUSIVE, not OPEN."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED), _path(), findings,
+        exp_status=ExperimentStatus.EXHAUSTED,
+    ) == PathStatus.INCONCLUSIVE
+
+
+def test_exhausted_rejected_resolved_low_confidence_falls_to_inconclusive():
+    """EXHAUSTED + low confidence rejection should also be INCONCLUSIVE."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a"),
+        _finding("003", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED, confidence=Confidence.LOW), _path(), findings,
+        exp_status=ExperimentStatus.EXHAUSTED,
+    ) == PathStatus.INCONCLUSIVE
+
+
+def test_non_exhausted_rejected_resolved_stays_open():
+    """Without EXHAUSTED, rejected RESOLVED should still return OPEN (existing behavior)."""
+    findings = [_finding("001", "a")]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED), _path(), findings,
+        exp_status=ExperimentStatus.SUCCESS,
+    ) == PathStatus.OPEN
+
+
 # --- Evaluator failure diagnostics (GH-18) ---
 
 

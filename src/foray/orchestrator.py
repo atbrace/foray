@@ -110,13 +110,20 @@ def apply_guardrails(
     assessment: Evaluation,
     path: PathInfo,
     findings: list[Finding],
+    exp_status: ExperimentStatus | None = None,
 ) -> PathStatus:
     """Apply deterministic guardrails to assessor's status recommendation.
 
     - Resolved requires 2+ non-failure experiments and at least medium confidence.
     - Blocked requires a non-empty blocker description.
+    - When exp_status is EXHAUSTED, rejected recommendations fall to INCONCLUSIVE
+      instead of OPEN to prevent infinite loops.
     """
     recommended = assessment.path_status
+    fallback = (
+        PathStatus.INCONCLUSIVE if exp_status == ExperimentStatus.EXHAUSTED
+        else PathStatus.OPEN
+    )
 
     if recommended == PathStatus.RESOLVED:
         non_failures = sum(
@@ -129,14 +136,14 @@ def apply_guardrails(
                 f"Guardrail: rejecting resolution of '{path.id}' "
                 f"-- only {non_failures} non-failure experiment(s)"
             )
-            return PathStatus.OPEN
+            return fallback
         if assessment.confidence == Confidence.LOW:
             logger.info(f"Guardrail: rejecting resolution of '{path.id}' -- low confidence")
-            return PathStatus.OPEN
+            return fallback
 
     if recommended == PathStatus.BLOCKED and not assessment.blocker_description:
         logger.info(f"Guardrail: rejecting block of '{path.id}' -- no blocker description")
-        return PathStatus.OPEN
+        return fallback
 
     return recommended
 
@@ -597,7 +604,7 @@ class Orchestrator:
             paths = read_paths(self.foray_dir)
             path = next((p for p in paths if p.id == result.path_id), None)
             if path:
-                new_status = apply_guardrails(result.assessment, path, all_findings)
+                new_status = apply_guardrails(result.assessment, path, all_findings, result.exp_status)
                 write_paths(self.foray_dir, [
                     p.model_copy(update={
                         "status": new_status,
