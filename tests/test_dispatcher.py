@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,6 +8,7 @@ from foray.dispatcher import (
     is_exhaustion_plan,
     parse_experiment_status,
     parse_stream_json_diagnostics,
+    parse_stream_json_tokens,
     write_crash_stub,
     write_planner_crash_stub,
 )
@@ -419,3 +421,58 @@ def test_crash_stub_includes_stream_diagnostics(tmp_path):
     assert "Tool calls completed: 2" in stub
     assert "Last tool used: Bash" in stub
     assert "Installing deps..." in stub
+
+
+# --- Stream-json token extraction (foray-7d8) ---
+
+
+def test_parse_stream_json_tokens_extracts_usage():
+    """Extracts input_tokens, output_tokens, cost from result event."""
+    stream = json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "usage": {
+            "input_tokens": 5000,
+            "output_tokens": 1200,
+            "cache_creation_input_tokens": 3000,
+            "cache_read_input_tokens": 2000,
+        },
+        "total_cost_usd": 0.058,
+    })
+    result = parse_stream_json_tokens(stream)
+    assert result["input_tokens"] == 5000
+    assert result["output_tokens"] == 1200
+    assert result["cost_usd"] == 0.058
+
+
+def test_parse_stream_json_tokens_no_result_event():
+    """Returns zeros when no result event in output."""
+    stream = json.dumps({"type": "assistant", "message": {"content": []}})
+    result = parse_stream_json_tokens(stream)
+    assert result["input_tokens"] == 0
+    assert result["output_tokens"] == 0
+    assert result["cost_usd"] == 0.0
+
+
+def test_parse_stream_json_tokens_multiline():
+    """Finds result event among multiple stream-json lines."""
+    lines = [
+        json.dumps({"type": "system", "subtype": "init"}),
+        json.dumps({"type": "assistant", "message": {"content": []}}),
+        json.dumps({
+            "type": "result", "subtype": "success",
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+            "total_cost_usd": 0.01,
+        }),
+    ]
+    result = parse_stream_json_tokens("\n".join(lines))
+    assert result["input_tokens"] == 100
+    assert result["output_tokens"] == 50
+
+
+def test_parse_stream_json_tokens_empty():
+    """Returns zeros for empty string."""
+    result = parse_stream_json_tokens("")
+    assert result["input_tokens"] == 0
+    assert result["output_tokens"] == 0
+    assert result["cost_usd"] == 0.0

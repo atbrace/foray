@@ -195,6 +195,29 @@ def parse_stream_json_diagnostics(stdout: str) -> dict[str, str | int]:
     }
 
 
+def parse_stream_json_tokens(stdout: str) -> dict[str, int | float]:
+    """Extract token usage from stream-json output.
+
+    Looks for the 'result' event which contains aggregate usage stats.
+    Returns dict with: input_tokens (int), output_tokens (int), cost_usd (float).
+    """
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "result":
+            usage = obj.get("usage", {})
+            return {
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cost_usd": obj.get("total_cost_usd", 0.0),
+            }
+    return {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+
+
 def _classify_failure(
     dispatch_result: DispatchResult,
     timeout_minutes: float,
