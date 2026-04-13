@@ -1223,13 +1223,20 @@ def test_apply_strategy_multiple_decisions(tmp_path):
     assert paths[2].id == "c"
 
 
-def test_strategist_skips_round_1():
-    """_run_strategist is a no-op on round 1."""
-    from pathlib import Path
+def test_strategist_skips_when_no_open_paths(tmp_path):
+    """_run_strategist is a no-op when all paths are resolved."""
     config = RunConfig(vision_path="vision.md")
-    orch = Orchestrator(Path("/tmp/fake"), config)
-    orch.foray_dir = Path("/tmp/fake/.foray")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h", status=PathStatus.RESOLVED),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
     orch._run_start = 0.0
 
-    # Should not dispatch — if it tries, it'll crash on missing files
+    # Should not dispatch — no open paths
     orch._run_strategist(1)  # no error = skipped

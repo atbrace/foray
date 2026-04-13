@@ -739,9 +739,6 @@ class Orchestrator:
 
     def _run_strategist(self, round_num: int) -> None:
         """Dispatch strategist agent after a round completes."""
-        if round_num <= 1:
-            return
-
         state = read_run_state(self.foray_dir)
         remaining = state.config.max_experiments - state.experiment_count
         if remaining <= 1:
