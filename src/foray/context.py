@@ -9,6 +9,7 @@ from foray.models import (
     PathInfo,
     RunState,
 )
+from foray.scheduler import detect_methodology_repetition
 from foray.state import read_evaluation, read_findings, read_paths
 
 logger = logging.getLogger(__name__)
@@ -74,19 +75,25 @@ def build_planner_context(
         for f in older:
             sections.append(f"- Exp {f.experiment_id}: [{f.status}] {f.one_liner}")
 
+    recent_tags: list[list[str]] = []
     if recent:
         sections.append("\n## Recent Experiments")
         for f in recent:
             brief = f.planner_brief if f.planner_brief else f.summary
             sections.append(f"- Exp {f.experiment_id}: [{f.status}] {brief}")
             evaluation = read_evaluation(foray_dir, f.experiment_id)
-            if evaluation and evaluation.evidence_against:
-                pairs = ", ".join(
-                    f"{k} ({v})" for k, v in evaluation.evidence_against.items()
-                )
-                sections.append(f"  Evidence against: {pairs}")
+            if evaluation:
+                recent_tags.append(evaluation.topic_tags)
+                if evaluation.evidence_against:
+                    pairs = ", ".join(
+                        f"{k} ({v})" for k, v in evaluation.evidence_against.items()
+                    )
+                    sections.append(f"  Evidence against: {pairs}")
 
-    sections.append(
+    # Trailing metadata sections (preserved during truncation)
+    trailing: list[str] = []
+
+    trailing.append(
         f"\n## Run Status\n- Round: {run_state.current_round}"
         f"\n- Experiments completed: {run_state.experiment_count}"
         f"\n- Budget: {run_state.config.max_experiments} experiments, "
@@ -95,10 +102,10 @@ def build_planner_context(
 
     env_md = _read_file(foray_dir / "environment.md")
     if env_md:
-        sections.append(f"\n{env_md}")
+        trailing.append(f"\n{env_md}")
 
     if needs_justification:
-        sections.append(
+        trailing.append(
             "\n## IMPORTANT: Concentration Justification Required\n"
             "This path has had 3+ experiments without resolution. "
             "Your plan MUST include a '## Justification for Continued Investment' "
@@ -106,6 +113,15 @@ def build_planner_context(
             "this path inconclusive."
         )
 
+    if detect_methodology_repetition(recent_tags):
+        trailing.append(
+            "\n## Methodology Repetition Detected\n"
+            "The last 3 experiments on this path share >70% of their methodology "
+            "tags, suggesting similar approaches are being repeated. Consider a "
+            "substantially different methodology or declare the path inconclusive."
+        )
+
+    sections.extend(trailing)
     context = "\n".join(sections)
     tokens = estimate_tokens(context)
     if tokens > BUDGETS["planner"]:
@@ -119,7 +135,7 @@ def build_planner_context(
             sections_truncated.append("\n## Recent Experiments")
             for f in recent:
                 sections_truncated.append(f"- Exp {f.experiment_id}: [{f.status}] {f.one_liner}")
-        sections_truncated.extend(sections[-(2 if needs_justification else 1):])
+        sections_truncated.extend(trailing)
         context = "\n".join(sections_truncated)
         tokens = estimate_tokens(context)
         logger.info(f"Planner context truncated to ~{tokens} tokens (budget: {BUDGETS['planner']})")

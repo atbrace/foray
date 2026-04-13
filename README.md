@@ -147,7 +147,7 @@ I'd like to know:
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
-| Initializer | Sonnet | Scans codebase, reads vision, identifies 3-5 exploration paths |
+| Initializer | Sonnet | Scans codebase, reads vision, identifies 2-5 exploration paths |
 | Planner | Sonnet | Designs a specific experiment for a path |
 | Executor | Sonnet | Runs the experiment in an isolated worktree |
 | Evaluator | **Opus** | Assesses results, recommends path status, rates confidence |

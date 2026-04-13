@@ -12,6 +12,7 @@ from foray.models import (
 from foray.scheduler import (
     check_consecutive_failures,
     check_path_failure_threshold,
+    detect_methodology_repetition,
     get_round_paths,
     needs_concentration_justification,
     next_experiment_id,
@@ -174,6 +175,64 @@ def test_exhausted_does_not_count_toward_path_failure_threshold():
         _finding("005", "a", ExperimentStatus.EXHAUSTED),
     ]
     assert check_path_failure_threshold("a", findings) is False
+
+
+# --- methodology repetition ---
+
+
+def test_methodology_repetition_identical_tags():
+    tags = [["rembg", "carving", "contour"], ["rembg", "carving", "contour"], ["rembg", "carving", "contour"]]
+    assert detect_methodology_repetition(tags) is True
+
+
+def test_methodology_repetition_high_overlap():
+    """4 tags shared out of 5 total = 80% > 70%."""
+    tags = [
+        ["rembg", "carving", "contour", "opencv"],
+        ["rembg", "carving", "contour", "opencv"],
+        ["rembg", "carving", "contour", "opencv", "threshold"],
+    ]
+    assert detect_methodology_repetition(tags) is True
+
+
+def test_methodology_repetition_low_overlap():
+    tags = [["rembg", "carving"], ["opencv", "edge-detection"], ["ml", "segmentation"]]
+    assert detect_methodology_repetition(tags) is False
+
+
+def test_methodology_repetition_under_threshold_count():
+    """Fewer than 3 experiments cannot trigger repetition."""
+    tags = [["rembg", "carving"], ["rembg", "carving"]]
+    assert detect_methodology_repetition(tags) is False
+
+
+def test_methodology_repetition_empty_tags():
+    """Empty tag lists should not trigger repetition."""
+    tags = [[], [], []]
+    assert detect_methodology_repetition(tags) is False
+
+
+def test_methodology_repetition_at_boundary():
+    """>70% means exactly 70% should NOT trigger."""
+    # 7 tags in intersection, 10 in union = 70% exactly → False
+    base = [f"tag-{i}" for i in range(7)]
+    tags = [
+        base.copy(),
+        base + ["extra-a", "extra-b"],
+        base + ["extra-c"],
+    ]
+    assert detect_methodology_repetition(tags) is False
+
+
+def test_methodology_repetition_uses_last_3():
+    """Only the last 3 tag lists matter, not earlier ones."""
+    tags = [
+        ["totally", "different"],  # old, should be ignored
+        ["rembg", "carving", "contour"],
+        ["rembg", "carving", "contour"],
+        ["rembg", "carving", "contour"],
+    ]
+    assert detect_methodology_repetition(tags) is True
 
 
 # --- experiment ID ---

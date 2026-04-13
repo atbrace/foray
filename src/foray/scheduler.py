@@ -69,6 +69,22 @@ def check_consecutive_failures(findings: list[Finding]) -> bool:
     )
 
 
+def detect_methodology_repetition(tag_lists: list[list[str]]) -> bool:
+    """True if last 3+ experiments share >70% of their topic tags.
+
+    Uses Jaccard similarity (intersection/union) across the last 3 tag lists.
+    Informational signal — does not block experiments.
+    """
+    if len(tag_lists) < 3:
+        return False
+    last_3 = [set(tags) for tags in tag_lists[-3:]]
+    if any(len(s) == 0 for s in last_3):
+        return False
+    intersection = last_3[0] & last_3[1] & last_3[2]
+    union = last_3[0] | last_3[1] | last_3[2]
+    return len(intersection) / len(union) > 0.7
+
+
 def next_experiment_id(experiment_count: int) -> str:
     """Generate zero-padded experiment ID."""
     return f"{experiment_count + 1:03d}"

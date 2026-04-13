@@ -429,6 +429,51 @@ def test_planner_no_failure_double_counting(tmp_path: Path):
     assert "Exp 003: [FAILED]" in ctx
 
 
+def test_planner_methodology_repetition_warning(tmp_path: Path):
+    """Planner context warns when last 3 experiments share >70% tags."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [_finding(f"{i:03d}", "path-a") for i in range(1, 4)]
+
+    # Write evals with identical topic_tags
+    for i in range(1, 4):
+        eval_obj = Evaluation(
+            experiment_id=f"{i:03d}", path_id="path-a",
+            outcome="conclusive", path_status="open", confidence="high",
+            summary="Found evidence",
+            topic_tags=["rembg", "carving", "contour"],
+        )
+        (tmp_path / "experiments" / f"{i:03d}_eval.json").write_text(eval_obj.model_dump_json())
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Methodology Repetition Detected" in ctx
+
+
+def test_planner_no_methodology_repetition_warning(tmp_path: Path):
+    """No repetition warning when experiment tags differ substantially."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [_finding(f"{i:03d}", "path-a") for i in range(1, 4)]
+
+    tags_per_exp = [
+        ["rembg", "carving"],
+        ["opencv", "edge-detection"],
+        ["ml", "segmentation"],
+    ]
+    for i, tags in enumerate(tags_per_exp, start=1):
+        eval_obj = Evaluation(
+            experiment_id=f"{i:03d}", path_id="path-a",
+            outcome="conclusive", path_status="open", confidence="high",
+            summary="Found evidence", topic_tags=tags,
+        )
+        (tmp_path / "experiments" / f"{i:03d}_eval.json").write_text(eval_obj.model_dump_json())
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Methodology Repetition Detected" not in ctx
+
+
 def test_build_exhaustion_evaluator_context_includes_rationale(tmp_path: Path):
     """Exhaustion context includes the rationale and full path history."""
     from foray.context import build_exhaustion_evaluator_context
