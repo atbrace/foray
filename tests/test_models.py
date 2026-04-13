@@ -531,3 +531,128 @@ def test_evaluation_data_type_roundtrip():
     )
     restored = Evaluation.model_validate_json(ev.model_dump_json())
     assert restored.data_type == "synthetic"
+
+
+# --- Finding observations and suggested_next (foray-hzv) ---
+
+
+def test_finding_observations_default():
+    """Finding observations defaults to empty list."""
+    f = Finding(
+        experiment_id="001", path_id="test",
+        status=ExperimentStatus.SUCCESS, summary="Test",
+    )
+    assert f.observations == []
+
+
+def test_finding_suggested_next_default():
+    """Finding suggested_next defaults to empty list."""
+    f = Finding(
+        experiment_id="001", path_id="test",
+        status=ExperimentStatus.SUCCESS, summary="Test",
+    )
+    assert f.suggested_next == []
+
+
+def test_finding_observations_populated():
+    """Finding carries observations from orchestrator."""
+    f = Finding(
+        experiment_id="001", path_id="test",
+        status=ExperimentStatus.SUCCESS, summary="Test",
+        observations=["Codebase uses monorepo pattern", "No existing test fixtures"],
+    )
+    assert len(f.observations) == 2
+    assert "Codebase uses monorepo pattern" in f.observations
+
+
+def test_finding_suggested_next_populated():
+    """Finding carries suggested_next from orchestrator."""
+    f = Finding(
+        experiment_id="001", path_id="test",
+        status=ExperimentStatus.SUCCESS, summary="Test",
+        suggested_next=["Test edge case with empty input", "Verify on real-world data"],
+    )
+    assert len(f.suggested_next) == 2
+    assert "Test edge case with empty input" in f.suggested_next
+
+
+def test_finding_annotations_roundtrip():
+    """Finding observations and suggested_next survive JSON roundtrip."""
+    f = Finding(
+        experiment_id="001", path_id="test",
+        status=ExperimentStatus.SUCCESS, summary="Test",
+        observations=["Found a pattern"],
+        suggested_next=["Explore further"],
+    )
+    restored = Finding.model_validate_json(f.model_dump_json())
+    assert restored.observations == ["Found a pattern"]
+    assert restored.suggested_next == ["Explore further"]
+
+
+# --- Evaluation observations (foray-hzv) ---
+
+
+def test_evaluation_observations_default():
+    """Evaluation observations defaults to empty list."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.observations == []
+
+
+def test_evaluation_observations_null_coercion():
+    """Evaluation observations: null coerces to empty list."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "open", "confidence": "high", "summary": "Test",
+        "observations": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.observations == []
+
+
+def test_evaluation_observations_roundtrip():
+    """Evaluation observations round-trips correctly."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH,
+        summary="Test",
+        observations=["Uses unusual dependency injection pattern"],
+    )
+    restored = Evaluation.model_validate_json(ev.model_dump_json())
+    assert restored.observations == ["Uses unusual dependency injection pattern"]
+
+
+# --- PathInfo discarded_hypotheses (foray-dhu) ---
+
+
+def test_path_info_discarded_hypotheses_default():
+    """discarded_hypotheses defaults to empty list."""
+    path = PathInfo(
+        id="test", description="Test", priority=Priority.HIGH, hypothesis="Test",
+    )
+    assert path.discarded_hypotheses == []
+
+
+def test_path_info_discarded_hypotheses_null_coercion():
+    """discarded_hypotheses: null in JSON coerces to empty list."""
+    raw_json = json.dumps({
+        "id": "test", "description": "Test", "priority": "high",
+        "hypothesis": "Test", "discarded_hypotheses": None,
+    })
+    path = PathInfo.model_validate_json(raw_json)
+    assert path.discarded_hypotheses == []
+
+
+def test_path_info_discarded_hypotheses_roundtrip():
+    """discarded_hypotheses round-trips correctly."""
+    path = PathInfo(
+        id="test", description="Test", priority=Priority.HIGH, hypothesis="Test",
+        discarded_hypotheses=["Approach A failed due to missing deps", "Method B diverged"],
+    )
+    restored = PathInfo.model_validate_json(path.model_dump_json())
+    assert restored.discarded_hypotheses == [
+        "Approach A failed due to missing deps",
+        "Method B diverged",
+    ]

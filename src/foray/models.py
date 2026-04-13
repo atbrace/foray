@@ -50,8 +50,11 @@ class _AgentOutput(BaseModel):
         if not isinstance(data, dict):
             return data
         for name, field in cls.model_fields.items():
-            if name in data and data[name] is None and field.default is not None:
-                data[name] = field.default
+            if name in data and data[name] is None:
+                if field.default_factory is not None:
+                    data[name] = field.default_factory()
+                elif field.default is not None:
+                    data[name] = field.default
         return data
 
 
@@ -64,6 +67,7 @@ class PathInfo(_AgentOutput):
     experiment_count: int = 0
     topic_tags: list[str] = Field(default_factory=list)
     blocker_description: str = ""
+    discarded_hypotheses: list[str] = Field(default_factory=list)
 
 
 class RoundOutcome(BaseModel):
@@ -91,6 +95,8 @@ class Finding(BaseModel):
     summary: str
     one_liner: str = ""
     planner_brief: str = ""
+    observations: list[str] = Field(default_factory=list)
+    suggested_next: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _derive_one_liner(self) -> Finding:
@@ -109,6 +115,7 @@ class Evaluation(_AgentOutput):
     summary: str
     planner_brief: str = ""
     new_questions: list[str] = Field(default_factory=list)
+    observations: list[str] = Field(default_factory=list)
     evidence_for: dict[str, str] = Field(default_factory=dict)
     evidence_against: dict[str, str] = Field(default_factory=dict)
     blocker_description: str = ""

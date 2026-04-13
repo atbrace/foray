@@ -114,15 +114,36 @@ def read_evaluation(foray_dir: Path, experiment_id: str) -> Evaluation | None:
 
 
 def append_timing(foray_dir: Path, record: TimingRecord) -> None:
-    """Append a timing record to timing.json."""
-    existing = read_timing(foray_dir)
-    existing.append(record)
-    _atomic_write(foray_dir / "state" / "timing.json", _serialize_model_list(existing))
+    """Append a timing record to timing.jsonl (one JSON object per line).
+
+    Callers must serialize access externally (e.g. orchestrator's _timing_lock).
+    """
+    path = foray_dir / "state" / "timing.jsonl"
+    with open(path, "a") as f:
+        f.write(record.model_dump_json() + "\n")
+
+
+def _migrate_timing_json(foray_dir: Path) -> None:
+    """Migrate old timing.json to timing.jsonl format."""
+    old_path = foray_dir / "state" / "timing.json"
+    new_path = foray_dir / "state" / "timing.jsonl"
+    records = [TimingRecord.model_validate(r) for r in json.loads(old_path.read_text())]
+    lines = "".join(r.model_dump_json() + "\n" for r in records)
+    _atomic_write(new_path, lines)
+    old_path.unlink()
 
 
 def read_timing(foray_dir: Path) -> list[TimingRecord]:
-    """Read all timing records from timing.json."""
-    path = foray_dir / "state" / "timing.json"
+    """Read all timing records from timing.jsonl."""
+    path = foray_dir / "state" / "timing.jsonl"
+    old_path = foray_dir / "state" / "timing.json"
     if not path.exists():
-        return []
-    return [TimingRecord.model_validate(r) for r in json.loads(path.read_text())]
+        if old_path.exists():
+            _migrate_timing_json(foray_dir)
+        else:
+            return []
+    return [
+        TimingRecord.model_validate_json(line)
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]

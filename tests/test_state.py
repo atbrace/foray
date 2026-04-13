@@ -194,3 +194,81 @@ def test_read_timing_empty(tmp_path):
     state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
     foray_dir = init_directory(tmp_path, state)
     assert read_timing(foray_dir) == []
+
+
+def test_append_writes_jsonl_line(tmp_path):
+    """append_timing writes a single JSONL line, not a JSON array."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    record = TimingRecord(
+        experiment_id="r1-001", agent_type="planner",
+        elapsed_seconds=3.2, input_tokens=5000, output_tokens=1200, cost_usd=0.05,
+    )
+    append_timing(foray_dir, record)
+
+    jsonl_path = foray_dir / "state" / "timing.jsonl"
+    assert jsonl_path.exists()
+    raw = jsonl_path.read_text()
+    lines = [l for l in raw.strip().split("\n") if l]
+    assert len(lines) == 1
+    parsed = json.loads(lines[0])
+    assert parsed["experiment_id"] == "r1-001"
+
+
+def test_multiple_appends_create_multiple_lines(tmp_path):
+    """Each append_timing call adds exactly one line to the JSONL file."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    for i in range(5):
+        append_timing(foray_dir, TimingRecord(
+            experiment_id=f"r1-{i:03d}", agent_type="executor",
+            elapsed_seconds=float(i), input_tokens=i * 100, output_tokens=i * 50,
+        ))
+
+    jsonl_path = foray_dir / "state" / "timing.jsonl"
+    lines = [l for l in jsonl_path.read_text().strip().split("\n") if l]
+    assert len(lines) == 5
+
+
+def test_read_timing_reads_jsonl(tmp_path):
+    """read_timing parses JSONL format correctly."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    # Write JSONL manually
+    jsonl_path = foray_dir / "state" / "timing.jsonl"
+    lines = [
+        json.dumps({"experiment_id": "r1-001", "agent_type": "planner", "elapsed_seconds": 3.0, "input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01}),
+        json.dumps({"experiment_id": "r1-002", "agent_type": "executor", "elapsed_seconds": 5.0, "input_tokens": 200, "output_tokens": 100, "cost_usd": 0.02}),
+    ]
+    jsonl_path.write_text("\n".join(lines) + "\n")
+
+    records = read_timing(foray_dir)
+    assert len(records) == 2
+    assert records[0].experiment_id == "r1-001"
+    assert records[1].agent_type == "executor"
+
+
+def test_timing_json_migrated_to_jsonl(tmp_path):
+    """Old timing.json gets migrated to timing.jsonl on first read_timing call."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    # Write old-format timing.json
+    old_path = foray_dir / "state" / "timing.json"
+    old_data = [
+        {"experiment_id": "r1-001", "agent_type": "planner", "elapsed_seconds": 3.0, "input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01},
+        {"experiment_id": "r1-002", "agent_type": "executor", "elapsed_seconds": 5.0, "input_tokens": 200, "output_tokens": 100, "cost_usd": 0.02},
+    ]
+    old_path.write_text(json.dumps(old_data, indent=2))
+
+    records = read_timing(foray_dir)
+    assert len(records) == 2
+    assert records[0].experiment_id == "r1-001"
+    assert records[1].experiment_id == "r1-002"
+
+    # Verify migration happened: jsonl exists, json removed
+    assert (foray_dir / "state" / "timing.jsonl").exists()
+    assert not old_path.exists()

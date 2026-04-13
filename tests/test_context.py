@@ -327,6 +327,30 @@ def test_planner_context_truncation(tmp_path: Path):
     assert tokens <= BUDGETS["planner"], f"Planner context ({tokens}) exceeds budget ({BUDGETS['planner']})"
 
 
+def test_planner_truncation_preserves_discarded_hypotheses(tmp_path: Path):
+    """Discarded hypotheses survive planner context truncation."""
+    (tmp_path / "vision.md").write_text("V")
+    (tmp_path / "experiments").mkdir()
+
+    path = _path()
+    path = path.model_copy(update={"discarded_hypotheses": ["Grep approach failed due to binary files"]})
+
+    findings = [
+        Finding(
+            experiment_id=f"{i:03d}", path_id="path-a",
+            status=ExperimentStatus.SUCCESS,
+            summary="x " * 5000,
+            one_liner=f"Short {i:03d}",
+            planner_brief="x " * 5000,
+        )
+        for i in range(1, 20)
+    ]
+
+    ctx = build_planner_context(tmp_path, path, findings, _state(), needs_justification=False)
+    assert "Discarded Approaches" in ctx
+    assert "Grep approach failed due to binary files" in ctx
+
+
 def test_executor_context_truncation(tmp_path: Path):
     """Executor context truncates codebase map when over budget."""
     plan_path = tmp_path / "plan.md"
@@ -507,3 +531,92 @@ def test_build_exhaustion_evaluator_context_includes_rationale(tmp_path: Path):
     assert "test-path" in ctx
     assert "Found X" in ctx
     assert "Confirmed X" in ctx
+
+
+# --- Finding annotations in planner context (foray-hzv) ---
+
+
+def test_planner_context_includes_observations(tmp_path: Path):
+    """Planner context surfaces observations from recent findings."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [Finding(
+        experiment_id="001", path_id="path-a", status=ExperimentStatus.SUCCESS,
+        summary="Found patterns", one_liner="Found patterns",
+        observations=["Uses monorepo layout", "No integration tests found"],
+    )]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Observations:" in ctx
+    assert "Uses monorepo layout" in ctx
+    assert "No integration tests found" in ctx
+
+
+def test_planner_context_includes_suggested_next(tmp_path: Path):
+    """Planner context surfaces suggested_next from recent findings."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [Finding(
+        experiment_id="001", path_id="path-a", status=ExperimentStatus.SUCCESS,
+        summary="Found patterns", one_liner="Found patterns",
+        suggested_next=["Test with empty input", "Try alternative parser"],
+    )]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Suggested next:" in ctx
+    assert "Test with empty input" in ctx
+    assert "Try alternative parser" in ctx
+
+
+def test_planner_context_omits_empty_annotations(tmp_path: Path):
+    """Planner context does not show Observations/Suggested next when empty."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    findings = [Finding(
+        experiment_id="001", path_id="path-a", status=ExperimentStatus.SUCCESS,
+        summary="Found patterns", one_liner="Found patterns",
+    )]
+
+    ctx = build_planner_context(tmp_path, _path(), findings, _state(), needs_justification=False)
+    assert "Observations:" not in ctx
+    assert "Suggested next:" not in ctx
+
+
+# --- Discarded hypotheses in planner context (foray-dhu) ---
+
+
+def test_planner_context_includes_discarded_hypotheses(tmp_path: Path):
+    """Planner context surfaces discarded hypotheses when present on path."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    path = PathInfo(
+        id="path-a", description="Test path", priority=Priority.HIGH,
+        hypothesis="Test", experiment_count=3,
+        discarded_hypotheses=[
+            "OpenCV contour extraction failed due to noise sensitivity",
+            "ML segmentation approach diverged from path hypothesis",
+        ],
+    )
+
+    ctx = build_planner_context(tmp_path, path, [], _state(), needs_justification=False)
+    assert "Discarded Approaches (do NOT retry)" in ctx
+    assert "OpenCV contour extraction failed due to noise sensitivity" in ctx
+    assert "ML segmentation approach diverged from path hypothesis" in ctx
+
+
+def test_planner_context_omits_discarded_when_empty(tmp_path: Path):
+    """Planner context does not show discarded section when list is empty."""
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+
+    path = PathInfo(
+        id="path-a", description="Test path", priority=Priority.HIGH,
+        hypothesis="Test", experiment_count=0,
+    )
+
+    ctx = build_planner_context(tmp_path, path, [], _state(), needs_justification=False)
+    assert "Discarded Approaches" not in ctx

@@ -17,6 +17,7 @@ Write exactly this JSON structure to the specified path:
   "summary": "2-3 sentence summary of what was learned",
   "planner_brief": "2-3 sentences for the planner: what approach was taken, what the outcome was, and any blockers or key insights for the next experiment",
   "new_questions": ["New questions raised"],
+  "observations": ["Things noticed during evaluation not directly related to the hypothesis but potentially useful for future experiments"],
   "evidence_for": {"approach": "strong|moderate|weak"},
   "evidence_against": {"approach": "strong|moderate|weak"},
   "blocker_description": "If recommending blocked, describe the blocker",

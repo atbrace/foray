@@ -905,3 +905,153 @@ def test_synthesis_includes_timing_stats(mock_ctx, mock_dispatch, tmp_path):
     assert "7s" in prompt_arg   # planner total: 3 + 4 = 7
     assert "45s" in prompt_arg  # executor total
     assert "9s" in prompt_arg   # evaluator total
+
+
+# --- Discarded hypotheses tracking (foray-dhu) ---
+
+
+def test_apply_result_adds_discarded_on_failed(tmp_path):
+    """FAILED experiment with divergence_note appends to discarded_hypotheses."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    from foray.state import write_paths
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    write_paths(foray_dir, [path])
+
+    result = ExperimentResult(
+        experiment_id="001", path_id="a",
+        exp_status=ExperimentStatus.FAILED,
+        finding=_finding("001", "a", ExperimentStatus.FAILED),
+        assessment=_assessment(
+            path_status=PathStatus.OPEN,
+            confidence=Confidence.MEDIUM,
+            divergence_note="OpenCV approach failed due to noise",
+        ),
+    )
+    orch._apply_experiment_result(result)
+
+    from foray.state import read_paths as rp
+    updated = next(p for p in rp(foray_dir) if p.id == "a")
+    assert "OpenCV approach failed due to noise" in updated.discarded_hypotheses
+
+
+def test_apply_result_adds_discarded_on_diverged(tmp_path):
+    """Diverged hypothesis_alignment appends to discarded_hypotheses."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    from foray.state import write_paths
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    write_paths(foray_dir, [path])
+
+    result = ExperimentResult(
+        experiment_id="001", path_id="a",
+        exp_status=ExperimentStatus.PARTIAL,
+        finding=_finding("001", "a", ExperimentStatus.PARTIAL),
+        assessment=_assessment(
+            path_status=PathStatus.OPEN,
+            confidence=Confidence.MEDIUM,
+            hypothesis_alignment="diverged",
+            divergence_note="Answered a different question entirely",
+        ),
+    )
+    orch._apply_experiment_result(result)
+
+    from foray.state import read_paths as rp
+    updated = next(p for p in rp(foray_dir) if p.id == "a")
+    assert "Answered a different question entirely" in updated.discarded_hypotheses
+
+
+def test_apply_result_no_discard_on_success(tmp_path):
+    """SUCCESS experiment with aligned hypothesis does NOT add discarded."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    from foray.state import write_paths
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    write_paths(foray_dir, [path])
+
+    result = ExperimentResult(
+        experiment_id="001", path_id="a",
+        exp_status=ExperimentStatus.SUCCESS,
+        finding=_finding("001", "a"),
+        assessment=_assessment(
+            path_status=PathStatus.OPEN,
+            confidence=Confidence.HIGH,
+            hypothesis_alignment="aligned",
+        ),
+    )
+    orch._apply_experiment_result(result)
+
+    from foray.state import read_paths as rp
+    updated = next(p for p in rp(foray_dir) if p.id == "a")
+    assert updated.discarded_hypotheses == []
+
+
+def test_apply_result_no_duplicate_discards(tmp_path):
+    """Same divergence note from two experiments should not duplicate."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    from foray.state import write_paths
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    write_paths(foray_dir, [path])
+
+    for exp_id in ("001", "002"):
+        result = ExperimentResult(
+            experiment_id=exp_id, path_id="a",
+            exp_status=ExperimentStatus.FAILED,
+            finding=_finding(exp_id, "a", ExperimentStatus.FAILED),
+            assessment=_assessment(
+                path_status=PathStatus.OPEN,
+                confidence=Confidence.MEDIUM,
+                divergence_note="Same failure reason",
+            ),
+        )
+        orch._apply_experiment_result(result)
+
+    from foray.state import read_paths as rp
+    updated = next(p for p in rp(foray_dir) if p.id == "a")
+    assert updated.discarded_hypotheses.count("Same failure reason") == 1
+
+
+def test_apply_result_uses_summary_when_no_divergence_note(tmp_path):
+    """INFEASIBLE experiment with empty divergence_note falls back to assessment summary."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    from foray.state import write_paths
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    write_paths(foray_dir, [path])
+
+    result = ExperimentResult(
+        experiment_id="001", path_id="a",
+        exp_status=ExperimentStatus.INFEASIBLE,
+        finding=_finding("001", "a", ExperimentStatus.INFEASIBLE),
+        assessment=Evaluation(
+            experiment_id="001", path_id="a", outcome="infeasible",
+            path_status=PathStatus.OPEN, confidence=Confidence.LOW,
+            summary="Dependency X not available in this environment",
+        ),
+    )
+    orch._apply_experiment_result(result)
+
+    from foray.state import read_paths as rp
+    updated = next(p for p in rp(foray_dir) if p.id == "a")
+    assert "Dependency X not available in this environment" in updated.discarded_hypotheses

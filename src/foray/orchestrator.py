@@ -653,6 +653,8 @@ class Orchestrator:
                 status=exp_status,
                 summary=finding_summary,
                 planner_brief=assessment.planner_brief if assessment else "",
+                observations=assessment.observations if assessment else [],
+                suggested_next=assessment.new_questions if assessment else [],
             ),
             assessment=assessment,
             started_at=exp_started_at,
@@ -671,11 +673,20 @@ class Orchestrator:
             path = next((p for p in paths if p.id == result.path_id), None)
             if path:
                 new_status = apply_guardrails(result.assessment, path, all_findings, result.exp_status)
+                new_discarded = list(path.discarded_hypotheses)
+                if (
+                    result.exp_status in (ExperimentStatus.FAILED, ExperimentStatus.INFEASIBLE)
+                    or result.assessment.hypothesis_alignment == "diverged"
+                ):
+                    note = result.assessment.divergence_note or result.assessment.summary
+                    if note and note not in new_discarded:
+                        new_discarded.append(note)
                 write_paths(self.foray_dir, [
                     p.model_copy(update={
                         "status": new_status,
                         "experiment_count": p.experiment_count + 1,
                         "topic_tags": list(set(p.topic_tags + result.assessment.topic_tags)),
+                        "discarded_hypotheses": new_discarded,
                     }) if p.id == result.path_id else p
                     for p in paths
                 ])

@@ -109,3 +109,7 @@ If previous experiments failed:
 - **CRASH:** Simplify the experiment scope
 
 **Never plan an experiment that hits the same blocker as a previous failure.** If previous experiments report the same environment constraint (e.g., two experiments both failed because `opencv-python` could not be installed), treat that constraint as permanent for this run. Do not plan a third experiment requiring the same dependency.
+
+## Discarded Approaches
+
+If a "Discarded Approaches (do NOT retry)" section is present in the context, do NOT propose experiments that repeat or closely resemble those approaches. They were tried and failed or diverged from the path hypothesis. Plan a substantially different methodology instead.

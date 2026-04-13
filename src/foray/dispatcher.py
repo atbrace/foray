@@ -347,17 +347,28 @@ def is_exhaustion_plan(plan_path: Path) -> bool:
 
 
 def parse_experiment_status(results_path: Path) -> ExperimentStatus:
-    """Parse Status header from experiment results file."""
+    """Parse Status header from experiment results file.
+
+    Looks for '## Status' header and parses the first non-empty line after it.
+    """
     if not results_path.exists():
         return ExperimentStatus.CRASH
 
-    for line in results_path.read_text().splitlines():
-        words = line.strip().split()
-        if not words:
+    lines = results_path.read_text().splitlines()
+    found_header = False
+    for line in lines:
+        if not found_header:
+            if line.strip() == "## Status":
+                found_header = True
             continue
+        # Skip empty/whitespace lines after header
+        stripped = line.strip()
+        if not stripped:
+            continue
+        words = stripped.split()
         try:
             return ExperimentStatus(words[0])
         except ValueError:
-            continue
+            return ExperimentStatus.CRASH
 
     return ExperimentStatus.CRASH

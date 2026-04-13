@@ -70,6 +70,11 @@ def build_planner_context(
         ),
     ]
 
+    if path.discarded_hypotheses:
+        sections.append("\n## Discarded Approaches (do NOT retry)")
+        for h in path.discarded_hypotheses:
+            sections.append(f"- {h}")
+
     if older:
         sections.append("\n## Previous Experiments (summaries)")
         for f in older:
@@ -81,6 +86,10 @@ def build_planner_context(
         for f in recent:
             brief = f.planner_brief if f.planner_brief else f.summary
             sections.append(f"- Exp {f.experiment_id}: [{f.status}] {brief}")
+            if f.observations:
+                sections.append(f"  Observations: {'; '.join(f.observations)}")
+            if f.suggested_next:
+                sections.append(f"  Suggested next: {'; '.join(f.suggested_next)}")
             evaluation = read_evaluation(foray_dir, f.experiment_id)
             if evaluation:
                 recent_tags.append(evaluation.topic_tags)
@@ -127,6 +136,10 @@ def build_planner_context(
     if tokens > BUDGETS["planner"]:
         # Rebuild with truncated recent briefs (biggest variable-size items)
         sections_truncated = sections[:2]  # vision + path info
+        if path.discarded_hypotheses:
+            sections_truncated.append("\n## Discarded Approaches (do NOT retry)")
+            for h in path.discarded_hypotheses:
+                sections_truncated.append(f"- {h}")
         if older:
             sections_truncated.append("\n## Previous Experiments (summaries)")
             for f in older:

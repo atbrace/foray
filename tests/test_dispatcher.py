@@ -150,6 +150,31 @@ def test_parse_status_empty_file(tmp_path):
     assert parse_experiment_status(p) == ExperimentStatus.CRASH
 
 
+def test_parse_status_body_line_not_misparsed(tmp_path):
+    """A body line starting with a status word should NOT override the real status."""
+    p = tmp_path / "results.md"
+    p.write_text(
+        "## Status\nSUCCESS\n\n## Findings\nFAILED experiments were re-run with better params"
+    )
+    assert parse_experiment_status(p) == ExperimentStatus.SUCCESS
+
+
+def test_parse_status_only_reads_after_header(tmp_path):
+    """Status must come from the line after '## Status', not from body content."""
+    p = tmp_path / "results.md"
+    p.write_text(
+        "## Overview\nSUCCESS is not guaranteed\n\n## Status\nFAILED\n\nDetails"
+    )
+    assert parse_experiment_status(p) == ExperimentStatus.FAILED
+
+
+def test_parse_status_no_status_header_with_status_word_in_body(tmp_path):
+    """File without ## Status header returns CRASH even if body contains status words."""
+    p = tmp_path / "results.md"
+    p.write_text("## Results\nSUCCESS was achieved in all metrics\n\nGreat work")
+    assert parse_experiment_status(p) == ExperimentStatus.CRASH
+
+
 def test_write_crash_stub(tmp_path):
     (tmp_path / "experiments").mkdir()
     plan_path = tmp_path / "experiments" / "001_plan.md"
