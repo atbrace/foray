@@ -262,6 +262,58 @@ def test_diverged_does_not_block_non_resolved_statuses():
     assert apply_guardrails(a, _path(), []) == PathStatus.BLOCKED
 
 
+# --- Environment failure escalation guardrail (foray-bdl enforcement) ---
+
+
+def test_env_failures_escalate_to_inconclusive():
+    """2+ FAILED experiments on same path + evaluator says OPEN → INCONCLUSIVE."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "a", ExperimentStatus.FAILED),
+    ]
+    a = _assessment(path_status=PathStatus.OPEN)
+    assert apply_guardrails(a, _path(), findings) == PathStatus.INCONCLUSIVE
+
+
+def test_single_env_failure_stays_open():
+    """1 FAILED experiment + evaluator says OPEN → OPEN (give it another shot)."""
+    findings = [_finding("001", "a", ExperimentStatus.FAILED)]
+    a = _assessment(path_status=PathStatus.OPEN)
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+def test_env_failures_only_count_same_path():
+    """FAILED experiments on other paths don't count toward escalation."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "b", ExperimentStatus.FAILED),
+    ]
+    a = _assessment(path_status=PathStatus.OPEN)
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+def test_env_failures_dont_override_blocked():
+    """If evaluator already recommends BLOCKED with description, don't interfere."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "a", ExperimentStatus.FAILED),
+    ]
+    a = _assessment(path_status=PathStatus.BLOCKED, blocker="Missing opencv")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.BLOCKED
+
+
+def test_env_failures_dont_override_resolved():
+    """Environment failures don't prevent resolution if evaluator says resolved."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "a", ExperimentStatus.FAILED),
+        _finding("003", "a", ExperimentStatus.SUCCESS),
+        _finding("004", "a", ExperimentStatus.SUCCESS),
+    ]
+    a = _assessment(path_status=PathStatus.RESOLVED)
+    assert apply_guardrails(a, _path(), findings) == PathStatus.RESOLVED
+
+
 # --- Evaluator failure diagnostics (GH-18) ---
 
 

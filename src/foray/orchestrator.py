@@ -163,6 +163,19 @@ def apply_guardrails(
         logger.info(f"Guardrail: rejecting block of '{path.id}' -- no blocker description")
         return fallback
 
+    # Environment failure escalation: 2+ FAILED experiments → stop retrying
+    if recommended == PathStatus.OPEN:
+        env_failures = sum(
+            1 for f in findings
+            if f.path_id == path.id and f.status == ExperimentStatus.FAILED
+        )
+        if env_failures >= 2:
+            logger.info(
+                f"Guardrail: escalating '{path.id}' to inconclusive "
+                f"-- {env_failures} environment failures"
+            )
+            return PathStatus.INCONCLUSIVE
+
     return recommended
 
 
