@@ -497,3 +497,37 @@ def test_evaluation_divergence_note_null_coercion():
     })
     ev = Evaluation.model_validate_json(raw_json)
     assert ev.divergence_note == ""
+
+
+# --- Evaluation data_type field (foray-57i) ---
+
+
+def test_evaluation_data_type_default():
+    """data_type defaults to empty string."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.data_type == ""
+
+
+def test_evaluation_data_type_null_coercion():
+    """data_type: null coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "open", "confidence": "high", "summary": "Test",
+        "data_type": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.data_type == ""
+
+
+def test_evaluation_data_type_roundtrip():
+    """data_type: 'synthetic' round-trips correctly."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.MEDIUM,
+        summary="Test", data_type="synthetic",
+    )
+    restored = Evaluation.model_validate_json(ev.model_dump_json())
+    assert restored.data_type == "synthetic"

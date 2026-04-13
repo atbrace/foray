@@ -117,6 +117,7 @@ class Evaluation(_AgentOutput):
     independent_verification: str = ""
     hypothesis_alignment: str = ""
     divergence_note: str = ""
+    data_type: str = ""
 
     @model_validator(mode="after")
     def _cap_self_eval_confidence(self) -> Evaluation:
