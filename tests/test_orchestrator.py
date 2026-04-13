@@ -160,6 +160,41 @@ def test_non_exhausted_rejected_resolved_stays_open():
 # --- Evaluator failure diagnostics (GH-18) ---
 
 
+def _setup_eval_test(tmp_path, evaluator_dispatch_result, capture_prompts=None):
+    """Set up an orchestrator that runs through plan → execute → evaluate.
+
+    Returns (orch, state, path) ready for `orch._run_experiment(path, "001", [], state)`.
+    `evaluator_dispatch_result` controls what the evaluator dispatch returns.
+    If `capture_prompts` is a list, evaluator prompts are appended to it.
+    """
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    plan_path = foray_dir / "experiments" / "001_plan.md"
+    results_path = foray_dir / "experiments" / "001_results.md"
+
+    def dispatch_side_effect(prompt: str, **kwargs):
+        if "ev" in prompt and "_eval.json" in prompt:
+            if capture_prompts is not None:
+                capture_prompts.append(prompt)
+            return evaluator_dispatch_result
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Plan\nTest plan")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=1.0)
+
+    def write_results(*args, **kwargs):
+        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
+        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=5.0)
+
+    return orch, state, path, dispatch_side_effect, write_results
+
+
 @patch("foray.orchestrator.dispatch")
 @patch("foray.orchestrator.dispatch_executor")
 @patch("foray.orchestrator.create_worktree")
@@ -172,44 +207,12 @@ def test_evaluator_failure_logs_diagnostics(
     mock_dispatch_exec, mock_dispatch, tmp_path, caplog,
 ):
     """When evaluator produces no assessment file, warning is logged with exit code and stderr."""
-    config = RunConfig(vision_path="vision.md")
-    state = RunState(start_time=datetime.now(timezone.utc), config=config)
-    foray_dir = init_directory(tmp_path, state)
-    orch = Orchestrator(tmp_path, config)
-    orch.foray_dir = foray_dir
-    orch._run_start = 0.0
-    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
-
-    path = PathInfo(
-        id="a", description="test", priority=Priority.HIGH, hypothesis="test",
-    )
-
-    # Planner and evaluator both use dispatch; differentiate by prompt content
-    plan_path = foray_dir / "experiments" / "001_plan.md"
-
-    def dispatch_side_effect(prompt: str, **kwargs):
-        if "ev" in prompt and "_eval.json" in prompt:
-            # Evaluator call — return failure diagnostics
-            return MagicMock(exit_code=1, stdout="", stderr="model overloaded error", elapsed_seconds=2.0)
-        # Planner call
-        plan_path.parent.mkdir(parents=True, exist_ok=True)
-        plan_path.write_text("# Plan\nTest plan")
-        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=1.0)
-
-    mock_dispatch.side_effect = dispatch_side_effect
-
-    # Executor writes results (SUCCESS)
-    results_path = foray_dir / "experiments" / "001_results.md"
-
-    def write_results(*args, **kwargs):
-        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
-        return MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=5.0)
-
+    eval_result = MagicMock(exit_code=1, stdout="", stderr="model overloaded error", elapsed_seconds=2.0)
+    orch, state, path, dispatch_se, write_results = _setup_eval_test(tmp_path, eval_result)
+    mock_dispatch.side_effect = dispatch_se
     mock_dispatch_exec.side_effect = write_results
     mock_create_wt.return_value = tmp_path / "worktree"
     (tmp_path / "worktree").mkdir()
-
-    # Evaluator returns None (no assessment file written)
     mock_eval.return_value = None
 
     with caplog.at_level(logging.WARNING, logger="foray.orchestrator"):
@@ -217,11 +220,63 @@ def test_evaluator_failure_logs_diagnostics(
 
     assert result.finding.summary == "(assessment failed)"
     assert result.assessment is None
-    # Verify diagnostic warning was logged
     warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
     assert any("Evaluator produced no assessment for 001" in m for m in warning_msgs)
     assert any("exit=1" in m for m in warning_msgs)
     assert any("model overloaded error" in m for m in warning_msgs)
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.dispatch_executor")
+@patch("foray.orchestrator.create_worktree")
+@patch("foray.orchestrator.cleanup_worktree")
+@patch("foray.orchestrator.copy_artifacts")
+@patch("foray.orchestrator.enforce_worktree_limit")
+@patch("foray.orchestrator.read_evaluation")
+def test_evaluator_prompt_includes_experiment_id(
+    mock_eval, mock_enforce, mock_copy, mock_cleanup, mock_create_wt,
+    mock_dispatch_exec, mock_dispatch, tmp_path,
+):
+    """Normal evaluator dispatch should pass experiment_id explicitly in the prompt."""
+    prompts = []
+    eval_result = MagicMock(exit_code=0, stdout="", stderr="", elapsed_seconds=2.0)
+    orch, state, path, dispatch_se, write_results = _setup_eval_test(tmp_path, eval_result, capture_prompts=prompts)
+    mock_dispatch.side_effect = dispatch_se
+    mock_dispatch_exec.side_effect = write_results
+    mock_create_wt.return_value = tmp_path / "worktree"
+    (tmp_path / "worktree").mkdir()
+    mock_eval.return_value = None
+
+    orch._run_experiment(path, "001", [], state)
+
+    assert len(prompts) == 1
+    assert "Use experiment_id: 001" in prompts[0]
+
+
+@patch("foray.orchestrator.dispatch")
+@patch("foray.orchestrator.dispatch_executor")
+@patch("foray.orchestrator.create_worktree")
+@patch("foray.orchestrator.cleanup_worktree")
+@patch("foray.orchestrator.copy_artifacts")
+@patch("foray.orchestrator.enforce_worktree_limit")
+@patch("foray.orchestrator.read_evaluation")
+def test_evaluator_failure_logs_to_console(
+    mock_eval, mock_enforce, mock_copy, mock_cleanup, mock_create_wt,
+    mock_dispatch_exec, mock_dispatch, tmp_path, capsys,
+):
+    """When evaluator fails, diagnostic output should be visible in console via _log."""
+    eval_result = MagicMock(exit_code=1, stdout="some stdout", stderr="some error", elapsed_seconds=2.0)
+    orch, state, path, dispatch_se, write_results = _setup_eval_test(tmp_path, eval_result)
+    mock_dispatch.side_effect = dispatch_se
+    mock_dispatch_exec.side_effect = write_results
+    mock_create_wt.return_value = tmp_path / "worktree"
+    (tmp_path / "worktree").mkdir()
+    mock_eval.return_value = None
+
+    orch._run_experiment(path, "001", [], state)
+
+    captured = capsys.readouterr()
+    assert "assessment failed" in captured.out.lower() or "no assessment" in captured.out.lower()
 
 
 # --- Synthesis on early termination (GH-17) ---

@@ -550,7 +550,8 @@ class Orchestrator:
             eval_result = dispatch(
                 prompt=(
                     f"{assessor_template}\n\n---\n\n{assessor_ctx}\n\n---\n\n"
-                    f"Write assessment JSON to: {assessment_path}"
+                    f"Write assessment JSON to: {assessment_path}\n"
+                    f"Use experiment_id: {experiment_id}"
                 ),
                 workdir=self.project_root,
                 model=self.config.evaluator_model,
@@ -564,9 +565,16 @@ class Orchestrator:
                 finding_summary = assessment.summary
             else:
                 stderr_snippet = (eval_result.stderr or "")[:500]
+                stdout_snippet = (eval_result.stdout or "")[:500]
                 logger.warning(
                     f"Evaluator produced no assessment for {experiment_id} "
                     f"(exit={eval_result.exit_code}): {stderr_snippet}"
+                )
+                _log(
+                    f"    {experiment_id} WARNING: no assessment file written "
+                    f"(exit={eval_result.exit_code}, stderr={stderr_snippet!r}, "
+                    f"stdout={stdout_snippet!r})",
+                    self._run_start,
                 )
                 finding_summary = "(assessment failed)"
 
