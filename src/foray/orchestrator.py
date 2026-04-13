@@ -411,7 +411,7 @@ class Orchestrator:
                 write_rounds(self.foray_dir, rounds)
                 logger.info(f"Round {round_num} complete: {len(round_paths)} experiments")
 
-                # Phase 3: Strategic review
+                # Phase 3: Strategic review (may open new paths)
                 self._run_strategist(round_num)
         finally:
             self._run_synthesis()
@@ -738,13 +738,15 @@ class Orchestrator:
         write_paths(self.foray_dir, paths)
 
     def _run_strategist(self, round_num: int) -> None:
-        """Dispatch strategist agent after a round completes."""
+        """Dispatch strategist agent after a round completes.
+
+        Fires even when all paths are resolved — that's when the strategist's
+        ``open`` action is most valuable (all initial hypotheses exhausted,
+        budget remaining, findings suggest new directions).
+        """
         state = read_run_state(self.foray_dir)
         remaining = state.config.max_experiments - state.experiment_count
         if remaining <= 1:
-            return
-        paths = read_paths(self.foray_dir)
-        if not any(p.status == PathStatus.OPEN for p in paths):
             return
 
         _log("  Strategist reviewing vision progress...", self._run_start)

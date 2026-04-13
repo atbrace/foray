@@ -1223,8 +1223,8 @@ def test_apply_strategy_multiple_decisions(tmp_path):
     assert paths[2].id == "c"
 
 
-def test_strategist_skips_when_no_open_paths(tmp_path):
-    """_run_strategist is a no-op when all paths are resolved."""
+def test_strategist_fires_when_no_open_paths(tmp_path):
+    """_run_strategist dispatches even when all paths are resolved."""
     config = RunConfig(vision_path="vision.md")
     state = RunState(start_time=datetime.now(timezone.utc), config=config)
     foray_dir = init_directory(tmp_path, state)
@@ -1233,10 +1233,36 @@ def test_strategist_skips_when_no_open_paths(tmp_path):
     write_paths(foray_dir, [
         PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h", status=PathStatus.RESOLVED),
     ])
+    # Strategist needs a vision file and agent prompt
+    (foray_dir / "vision.md").write_text("test vision")
+    (foray_dir / "agents").mkdir(exist_ok=True)
+    (foray_dir / "agents" / "strategist.md").write_text("test prompt")
 
     orch = Orchestrator(tmp_path, config)
     orch.foray_dir = foray_dir
     orch._run_start = 0.0
 
-    # Should not dispatch — no open paths
+    mock_result = DispatchResult(
+        exit_code=0, stdout="", stderr="", elapsed_seconds=1.0,
+        input_tokens=0, output_tokens=0, cost_usd=0.0,
+    )
+    with patch("foray.orchestrator.dispatch", return_value=mock_result) as mock_dispatch:
+        orch._run_strategist(1)
+        mock_dispatch.assert_called_once()
+
+
+def test_strategist_skips_when_budget_exhausted(tmp_path):
+    """_run_strategist is a no-op when experiment budget is exhausted."""
+    config = RunConfig(vision_path="vision.md", max_experiments=10)
+    state = RunState(
+        start_time=datetime.now(timezone.utc), config=config,
+        experiment_count=10,
+    )
+    foray_dir = init_directory(tmp_path, state)
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+
+    # Should not dispatch — no budget remaining
     orch._run_strategist(1)  # no error = skipped

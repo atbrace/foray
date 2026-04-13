@@ -65,6 +65,18 @@ Shift priority when what's been learned changes which path would most advance th
 
 5. **Build on what's working.** If a path produced strong findings, consider whether those findings suggest a new path rather than just continuing the current one.
 
+## When All Paths Have Resolved
+
+If every path is resolved or blocked but the vision is not fully answered, this is your most important moment. The run will end unless you open new paths.
+
+Ask yourself: **"Did the resolved paths answer the vision, or did they only narrow the search space?"**
+
+- If the vision is answered — even by negative results that definitively close the question — output zero decisions. The run should end.
+- If the vision is NOT answered but findings suggest concrete next directions, **open 1-2 new paths** based on what was learned. These should be second-generation hypotheses that couldn't have been formulated at the start of the run.
+- If the vision is NOT answered and there's no clear next direction, output zero decisions. Continuing without a thesis wastes budget.
+
+The bar for opening new paths here is: "Would I recommend a human researcher pursue this specific hypothesis based on these findings?" If yes, open it.
+
 ## The Key Question
 
 Before writing your output, ask yourself: **"If I step back and look at everything we've learned so far, are we actually getting closer to answering the vision? Or are we going deep on tangents while the core question goes unaddressed?"**
