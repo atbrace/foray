@@ -103,9 +103,9 @@ Works in an isolated git worktree. Can install Python packages via `uv pip insta
 If previous experiments failed:
 - **PARTIAL:** Build on the partial work
 - **FAILED:** Diagnose the blocker. Plan a DIFFERENT approach
-- **FAILED (environment):** A missing dependency or credential prevented testing. Check the Environment section and either design around the constraint or choose a different approach that uses available tools.
+- **FAILED (environment):** A missing dependency or credential prevented testing. Check the Environment section and either design around the constraint or choose a different approach that uses available tools. **If all viable approaches require the blocked dependency, signal EXHAUSTED** — do not plan another experiment that will hit the same wall.
 - **INFEASIBLE (capability):** Rescope to available executor capabilities
 - **INFEASIBLE (research):** Feasibility research showed the hypothesis is not viable. Change the hypothesis or abandon the path
 - **CRASH:** Simplify the experiment scope
 
-**Never plan an experiment that hits the same blocker as a previous failure.**
+**Never plan an experiment that hits the same blocker as a previous failure.** If previous experiments report the same environment constraint (e.g., two experiments both failed because `opencv-python` could not be installed), treat that constraint as permanent for this run. Do not plan a third experiment requiring the same dependency.
