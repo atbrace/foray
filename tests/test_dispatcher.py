@@ -137,6 +137,19 @@ def test_parse_status_infeasible_with_reason(tmp_path):
     assert parse_experiment_status(p) == ExperimentStatus.INFEASIBLE
 
 
+def test_parse_status_with_empty_lines(tmp_path):
+    """Empty/whitespace lines in results file should not crash the parser."""
+    p = tmp_path / "results.md"
+    p.write_text("## Status\n\n  \nSUCCESS\n\nDetails here")
+    assert parse_experiment_status(p) == ExperimentStatus.SUCCESS
+
+
+def test_parse_status_empty_file(tmp_path):
+    p = tmp_path / "results.md"
+    p.write_text("")
+    assert parse_experiment_status(p) == ExperimentStatus.CRASH
+
+
 def test_write_crash_stub(tmp_path):
     (tmp_path / "experiments").mkdir()
     plan_path = tmp_path / "experiments" / "001_plan.md"

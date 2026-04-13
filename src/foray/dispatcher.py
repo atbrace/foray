@@ -352,8 +352,11 @@ def parse_experiment_status(results_path: Path) -> ExperimentStatus:
         return ExperimentStatus.CRASH
 
     for line in results_path.read_text().splitlines():
+        words = line.strip().split()
+        if not words:
+            continue
         try:
-            return ExperimentStatus(line.strip().split()[0])
+            return ExperimentStatus(words[0])
         except ValueError:
             continue
 
