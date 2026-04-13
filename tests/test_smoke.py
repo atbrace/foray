@@ -68,7 +68,8 @@ def _mock_dispatch_factory(foray_dir: Path):
     def mock_dispatch(prompt: str, workdir: Path = None, model: str = "",
                       max_turns: int = 0, tools: list[str] = None,
                       timeout_minutes: float = 10, results_file: Path | None = None,
-                      env: dict | None = None, worktree_path: Path | None = None,
+                      env: dict | None = None, output_format: str = "text",
+                      worktree_path: Path | None = None,
                       project_root: Path | None = None, experiment_id: str | None = None,
                       foray_dir: Path | None = None):
         result = MagicMock()

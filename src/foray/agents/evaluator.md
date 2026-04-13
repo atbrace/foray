@@ -110,3 +110,26 @@ Before recommending path status, compare the experiment's actual findings to the
 Set `"hypothesis_alignment"` and, if partial or diverged, explain in `"divergence_note"`.
 
 **Critical:** If alignment is "diverged", do NOT recommend "resolved". The path question has not been answered — it has been replaced with a different question. Recommend "open" so the next experiment can address the actual hypothesis.
+
+## Diminishing Returns Detection
+
+Before recommending `open`, review the experiment history for this path:
+
+- If the last 2 experiments **confirmed or extended** prior findings rather than testing genuinely new hypotheses, the path has reached diminishing returns
+- Recommend `resolved` if accumulated evidence is sufficient for an engineer to build with
+- Recommend `inconclusive` if evidence is insufficient but no new testable hypothesis exists
+- Do NOT recommend `open` when the only remaining work is confirmation of already-established results
+
+Ask: "Would the next experiment teach us something we don't already know?" If the answer is no, close the path. Note what remains unvalidated in `summary`.
+
+## Decision-Forcing Rules
+
+When evidence is asymmetric, you must make a decision rather than defaulting to `open`:
+
+1. **Method insufficient:** If evidence shows a method/approach fundamentally cannot meet requirements (e.g., noise is 3-4x above threshold, format fails at any quality level), recommend `blocked` with `blocker_description` listing alternative approaches worth trying
+
+2. **Evidence splits the question:** If the experiment reveals the path question should be decomposed (e.g., "works for PNG but not JPEG"), recommend sub-paths in `new_questions` and mark the current path `resolved` (if the split itself is the answer) or `inconclusive` (if neither sub-path has evidence yet)
+
+3. **Tools prevent measurement:** If key success criteria were unmeasurable due to tool limitations (not environment failures), set outcome to `inconclusive` and path_status to `inconclusive` — do NOT mark as `open` for retry when the same tool limitation will recur
+
+**Self-check before writing `"path_status": "open"`:** Review `evidence_against`. If any entry has strength "strong", you must justify in `summary` why the path remains open despite strong counter-evidence. If you cannot articulate a specific, testable next step that would change the conclusion, the path is not open — it is `blocked` or `inconclusive`.

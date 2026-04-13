@@ -217,6 +217,20 @@ class Orchestrator:
             self._agent_timing.setdefault(record.agent_type, []).append(record.elapsed_seconds)
             append_timing(self.foray_dir, record)
 
+    def _record_dispatch(
+        self, result: DispatchResult, experiment_id: str, agent_type: str,
+    ) -> None:
+        """Parse token usage from dispatch stdout and persist timing."""
+        tokens = parse_stream_json_tokens(result.stdout)
+        self._persist_timing(TimingRecord(
+            experiment_id=experiment_id,
+            agent_type=agent_type,
+            elapsed_seconds=result.elapsed_seconds,
+            input_tokens=tokens["input_tokens"],
+            output_tokens=tokens["output_tokens"],
+            cost_usd=tokens["cost_usd"],
+        ))
+
     def init(self) -> Path:
         """Initialize .foray/ directory, dispatch initializer, return foray_dir."""
         self._run_start = time.monotonic()
@@ -253,11 +267,9 @@ class Orchestrator:
             model=self.config.model,
             max_turns=self.config.max_turns,
             tools=["Read", "Glob", "Grep", "Bash", "Write"],
+            output_format="stream-json",
         )
-        self._persist_timing(TimingRecord(
-            experiment_id="init", agent_type="initializer",
-            elapsed_seconds=result.elapsed_seconds,
-        ))
+        self._record_dispatch(result, "init", "initializer")
         if result.exit_code != 0:
             _log(f"Initializer failed (exit {result.exit_code})")
             if result.stderr:
@@ -449,12 +461,10 @@ class Orchestrator:
             model=self.config.model,
             max_turns=self.config.max_turns,
             tools=["Read", "Glob", "Grep", "Write"],
+            output_format="stream-json",
         )
         planner_attempts.append(planner_result)
-        self._persist_timing(TimingRecord(
-            experiment_id=experiment_id, agent_type="planner",
-            elapsed_seconds=planner_result.elapsed_seconds,
-        ))
+        self._record_dispatch(planner_result, experiment_id, "planner")
         _log(f"    {experiment_id} planned ({_format_seconds(planner_result.elapsed_seconds)})", self._run_start)
 
         if not plan_path.exists():
@@ -474,12 +484,10 @@ class Orchestrator:
                 model=self.config.model,
                 max_turns=self.config.max_turns,
                 tools=["Read", "Glob", "Grep", "Write"],
+                output_format="stream-json",
             )
             planner_attempts.append(retry_result)
-            self._persist_timing(TimingRecord(
-                experiment_id=experiment_id, agent_type="planner",
-                elapsed_seconds=retry_result.elapsed_seconds,
-            ))
+            self._record_dispatch(retry_result, experiment_id, "planner")
             if not plan_path.exists():
                 _log(f"    {experiment_id} planner failed twice — marking CRASH", self._run_start)
                 write_planner_crash_stub(
@@ -524,11 +532,9 @@ class Orchestrator:
                 model=self.config.evaluator_model,
                 max_turns=6,
                 tools=["Read", "Write"],
+                output_format="stream-json",
             )
-            self._persist_timing(TimingRecord(
-                experiment_id=experiment_id, agent_type="evaluator",
-                elapsed_seconds=exhaust_eval_result.elapsed_seconds,
-            ))
+            self._record_dispatch(exhaust_eval_result, experiment_id, "evaluator")
             _log(f"    {experiment_id} evaluated ({_format_seconds(exhaust_eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             finding_summary = assessment.summary if assessment else rationale_text[:200]
@@ -578,14 +584,7 @@ class Orchestrator:
             tools=self.tools,
             foray_dir=self.foray_dir,
         )
-        tokens = parse_stream_json_tokens(exec_result.stdout)
-        self._persist_timing(TimingRecord(
-            experiment_id=experiment_id, agent_type="executor",
-            elapsed_seconds=exec_result.elapsed_seconds,
-            input_tokens=tokens["input_tokens"],
-            output_tokens=tokens["output_tokens"],
-            cost_usd=tokens["cost_usd"],
-        ))
+        self._record_dispatch(exec_result, experiment_id, "executor")
         _log(f"    {experiment_id} executed ({_format_seconds(exec_result.elapsed_seconds)})", self._run_start)
 
         if not results_path.exists():
@@ -615,11 +614,9 @@ class Orchestrator:
                 model=self.config.evaluator_model,
                 max_turns=6,
                 tools=["Read", "Write"],
+                output_format="stream-json",
             )
-            self._persist_timing(TimingRecord(
-                experiment_id=experiment_id, agent_type="evaluator",
-                elapsed_seconds=eval_result.elapsed_seconds,
-            ))
+            self._record_dispatch(eval_result, experiment_id, "evaluator")
             _log(f"    {experiment_id} evaluated ({_format_seconds(eval_result.elapsed_seconds)})", self._run_start)
             assessment = read_evaluation(self.foray_dir, experiment_id)
             if assessment:
@@ -710,10 +707,13 @@ class Orchestrator:
             total = sum(r.elapsed_seconds for r in recs)
             count = len(recs)
             avg = total / count
+            agent_in = sum(r.input_tokens for r in recs)
+            agent_out = sum(r.output_tokens for r in recs)
+            token_info = f", {agent_in:,} in / {agent_out:,} out" if agent_in or agent_out else ""
             lines.append(
                 f"- {agent_type}: {count} call(s), "
                 f"{_format_seconds(total)} total, "
-                f"{_format_seconds(avg)} avg"
+                f"{_format_seconds(avg)} avg{token_info}"
             )
         if total_tokens_in > 0 or total_tokens_out > 0:
             lines.append(f"\n**Token usage:** {total_tokens_in:,} input, {total_tokens_out:,} output")
@@ -742,7 +742,9 @@ class Orchestrator:
                 model=self.config.model,
                 max_turns=self.config.max_turns,
                 tools=["Read", "Glob", "Write"],
+                output_format="stream-json",
             )
+            self._record_dispatch(result, "synthesis", "synthesizer")
             if synthesis_path.exists():
                 return
             stderr_snippet = (result.stderr or "")[:500]

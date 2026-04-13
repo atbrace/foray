@@ -632,6 +632,149 @@ def test_non_exhausted_still_requires_two():
     ) == PathStatus.OPEN
 
 
+# --- Token tracking for all agent types (foray-82m) ---
+
+
+def test_planner_and_evaluator_track_tokens(tmp_path):
+    """Planner and evaluator dispatches extract tokens via stream-json and persist them."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    plan_path = foray_dir / "experiments" / "001_plan.md"
+    results_path = foray_dir / "experiments" / "001_results.md"
+
+    planner_stdout = '{"type":"result","usage":{"input_tokens":1000,"output_tokens":200},"total_cost_usd":0.05}\n'
+    eval_stdout = '{"type":"result","usage":{"input_tokens":500,"output_tokens":100},"total_cost_usd":0.02}\n'
+
+    def dispatch_side_effect(prompt, **kwargs):
+        if "_eval.json" in prompt:
+            return DispatchResult(exit_code=0, stdout=eval_stdout, stderr="", elapsed_seconds=9.0)
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Plan\nTest plan")
+        return DispatchResult(exit_code=0, stdout=planner_stdout, stderr="", elapsed_seconds=3.0)
+
+    def write_results(*args, **kwargs):
+        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
+        exec_stdout = '{"type":"result","usage":{"input_tokens":5000,"output_tokens":1000},"total_cost_usd":0.20}\n'
+        return DispatchResult(exit_code=0, stdout=exec_stdout, stderr="", elapsed_seconds=45.0)
+
+    with patch("foray.orchestrator.dispatch", side_effect=dispatch_side_effect), \
+         patch("foray.orchestrator.dispatch_executor", side_effect=write_results), \
+         patch("foray.orchestrator.create_worktree", return_value=tmp_path / "worktree"), \
+         patch("foray.orchestrator.cleanup_worktree"), \
+         patch("foray.orchestrator.copy_artifacts"), \
+         patch("foray.orchestrator.enforce_worktree_limit"), \
+         patch("foray.orchestrator.read_evaluation") as mock_eval:
+        (tmp_path / "worktree").mkdir(exist_ok=True)
+        mock_eval.return_value = Evaluation(
+            experiment_id="001", path_id="a", outcome="conclusive",
+            path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="done",
+        )
+        orch._run_experiment(path, "001", [], state)
+
+    records = read_timing(foray_dir)
+    planner_recs = [r for r in records if r.agent_type == "planner"]
+    eval_recs = [r for r in records if r.agent_type == "evaluator"]
+    exec_recs = [r for r in records if r.agent_type == "executor"]
+
+    assert len(planner_recs) == 1
+    assert planner_recs[0].input_tokens == 1000
+    assert planner_recs[0].output_tokens == 200
+    assert planner_recs[0].cost_usd == 0.05
+
+    assert len(eval_recs) == 1
+    assert eval_recs[0].input_tokens == 500
+    assert eval_recs[0].output_tokens == 100
+    assert eval_recs[0].cost_usd == 0.02
+
+    assert len(exec_recs) == 1
+    assert exec_recs[0].input_tokens == 5000
+    assert exec_recs[0].output_tokens == 1000
+
+
+def test_all_dispatches_use_stream_json(tmp_path):
+    """All dispatch calls pass output_format='stream-json' for token extraction."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+    orch._run_start = 0.0
+    orch._prompt_cache = {"planner": "p", "executor": "e", "evaluator": "ev"}
+
+    path = PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="test")
+    plan_path = foray_dir / "experiments" / "001_plan.md"
+    results_path = foray_dir / "experiments" / "001_results.md"
+
+    dispatch_kwargs_log = []
+
+    def dispatch_side_effect(prompt, **kwargs):
+        dispatch_kwargs_log.append(kwargs)
+        if "_eval.json" in prompt:
+            return DispatchResult(exit_code=0, stdout="", stderr="", elapsed_seconds=2.0)
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Plan\nTest plan")
+        return DispatchResult(exit_code=0, stdout="", stderr="", elapsed_seconds=1.0)
+
+    def write_results(*args, **kwargs):
+        results_path.write_text("## Status\nSUCCESS\n\n## Findings\nTest")
+        return DispatchResult(exit_code=0, stdout="", stderr="", elapsed_seconds=5.0)
+
+    with patch("foray.orchestrator.dispatch", side_effect=dispatch_side_effect), \
+         patch("foray.orchestrator.dispatch_executor", side_effect=write_results), \
+         patch("foray.orchestrator.create_worktree", return_value=tmp_path / "worktree"), \
+         patch("foray.orchestrator.cleanup_worktree"), \
+         patch("foray.orchestrator.copy_artifacts"), \
+         patch("foray.orchestrator.enforce_worktree_limit"), \
+         patch("foray.orchestrator.read_evaluation") as mock_eval:
+        (tmp_path / "worktree").mkdir(exist_ok=True)
+        mock_eval.return_value = Evaluation(
+            experiment_id="001", path_id="a", outcome="conclusive",
+            path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="done",
+        )
+        orch._run_experiment(path, "001", [], state)
+
+    # Both planner and evaluator dispatch calls should use stream-json
+    for i, kwargs in enumerate(dispatch_kwargs_log):
+        assert kwargs.get("output_format") == "stream-json", (
+            f"dispatch call {i} missing output_format='stream-json': {kwargs}"
+        )
+
+
+def test_timing_stats_show_per_agent_tokens(tmp_path):
+    """_format_timing_stats includes per-agent token counts when available."""
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    append_timing(foray_dir, TimingRecord(
+        experiment_id="001", agent_type="planner", elapsed_seconds=3.0,
+        input_tokens=1000, output_tokens=200, cost_usd=0.05,
+    ))
+    append_timing(foray_dir, TimingRecord(
+        experiment_id="001", agent_type="executor", elapsed_seconds=45.0,
+        input_tokens=5000, output_tokens=1000, cost_usd=0.20,
+    ))
+    append_timing(foray_dir, TimingRecord(
+        experiment_id="001", agent_type="evaluator", elapsed_seconds=9.0,
+        input_tokens=500, output_tokens=100, cost_usd=0.02,
+    ))
+
+    stats = orch._format_timing_stats()
+    # Per-agent token info should appear
+    assert "1,000 in" in stats and "200 out" in stats   # planner
+    assert "5,000 in" in stats and "1,000 out" in stats  # executor
+    assert "500 in" in stats and "100 out" in stats      # evaluator
+
+
 def test_format_seconds_under_minute():
     assert _format_seconds(3.0) == "3s"
     assert _format_seconds(59.4) == "59s"
