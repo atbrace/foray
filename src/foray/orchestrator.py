@@ -673,9 +673,9 @@ class Orchestrator:
         add_finding(self.foray_dir, result.finding)
 
         updated_path = None
+        paths = read_paths(self.foray_dir)
         if result.assessment:
             all_findings = read_findings(self.foray_dir)
-            paths = read_paths(self.foray_dir)
             path = next((p for p in paths if p.id == result.path_id), None)
             if path:
                 new_status = apply_guardrails(result.assessment, path, all_findings, result.exp_status)
@@ -699,6 +699,13 @@ class Orchestrator:
                 updated_path = next(
                     (p for p in read_paths(self.foray_dir) if p.id == result.path_id), None
                 )
+        else:
+            # Crashed experiments still count toward the path's experiment tally
+            write_paths(self.foray_dir, [
+                p.model_copy(update={"experiment_count": p.experiment_count + 1})
+                if p.id == result.path_id else p
+                for p in paths
+            ])
 
         state = read_run_state(self.foray_dir)
         state.experiment_count += 1

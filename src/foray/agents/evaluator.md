@@ -30,6 +30,14 @@ Write exactly this JSON structure to the specified path:
 }
 ```
 
+## Outcome Classification
+
+- **conclusive** — the experiment produced metrics or evidence directly relevant to the path's hypothesis. The hypothesis was tested, not just prepared for.
+- **inconclusive** — the experiment did useful work but did not produce hypothesis-relevant evidence. This includes: smoke tests that confirm code runs without crashing, implementation work that sets up infrastructure for future experiments, file verification, architectural feasibility checks.
+- **failed** — the experiment attempted to test the hypothesis but encountered errors that prevented completion.
+
+**The gate:** Ask "Did this experiment produce a measurement that moves the hypothesis toward confirmed or rejected?" If the answer is "no, it just proved the code works" — the outcome is **inconclusive**, not conclusive. Implementation milestones are necessary precursors to experiments, not experiments themselves.
+
 ## Path Status Recommendations
 
 - **open** — more work needed, AND the next useful step is another research experiment (not integration)

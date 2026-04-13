@@ -1266,3 +1266,31 @@ def test_strategist_skips_when_budget_exhausted(tmp_path):
 
     # Should not dispatch — no budget remaining
     orch._run_strategist(1)  # no error = skipped
+
+
+def test_crashed_experiment_increments_path_experiment_count(tmp_path):
+    """_apply_experiment_result increments experiment_count even without an assessment (crash)."""
+    from foray.state import read_paths, write_paths, write_run_state
+
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+    write_paths(foray_dir, [_path("a")])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    crash_result = ExperimentResult(
+        experiment_id="001",
+        path_id="a",
+        exp_status=ExperimentStatus.CRASH,
+        finding=_finding("001", "a", ExperimentStatus.CRASH),
+        assessment=None,  # Crashed experiments have no assessment
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+        elapsed_seconds=10.0,
+    )
+    orch._apply_experiment_result(crash_result)
+
+    paths = read_paths(foray_dir)
+    assert paths[0].experiment_count == 1
