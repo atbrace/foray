@@ -149,7 +149,9 @@ def apply_guardrails(
             and assessment.independent_verification
         )
 
-        if non_failures < 2 and not has_independent_override:
+        # EXHAUSTED: relax to 1 — prevents loops where evaluator unanimously recommends resolution but guardrails keep rejecting
+        min_experiments = 1 if exp_status == ExperimentStatus.EXHAUSTED else 2
+        if non_failures < min_experiments and not has_independent_override:
             logger.info(
                 f"Guardrail: rejecting resolution of '{path.id}' "
                 f"-- only {non_failures} non-failure experiment(s)"

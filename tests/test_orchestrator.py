@@ -580,6 +580,57 @@ def test_synthesis_logs_warning_on_double_failure(mock_ctx, mock_dispatch, tmp_p
 # --- Dispatch elapsed time logging (GH-8) ---
 
 
+# --- Exhausted path relaxed resolution (foray-82e) ---
+
+
+def test_exhausted_resolves_with_one_non_failure():
+    """EXHAUSTED + evaluator says RESOLVED + 1 non-failure experiment -> RESOLVED."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED),
+        _path(), findings,
+        exp_status=ExperimentStatus.EXHAUSTED,
+    ) == PathStatus.RESOLVED
+
+
+def test_exhausted_still_requires_at_least_one_non_failure():
+    """EXHAUSTED + zero non-failure experiments -> INCONCLUSIVE."""
+    findings = [
+        _finding("001", "a", ExperimentStatus.FAILED),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED),
+        _path(), findings,
+        exp_status=ExperimentStatus.EXHAUSTED,
+    ) == PathStatus.INCONCLUSIVE
+
+
+def test_exhausted_still_blocks_low_confidence():
+    """EXHAUSTED + LOW confidence -> INCONCLUSIVE even with non-failure experiments."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED, confidence=Confidence.LOW),
+        _path(), findings,
+        exp_status=ExperimentStatus.EXHAUSTED,
+    ) == PathStatus.INCONCLUSIVE
+
+
+def test_non_exhausted_still_requires_two():
+    """Without EXHAUSTED, 1 non-failure + RESOLVED -> OPEN (unchanged behavior)."""
+    findings = [_finding("001", "a")]
+    assert apply_guardrails(
+        _assessment(path_status=PathStatus.RESOLVED),
+        _path(), findings,
+    ) == PathStatus.OPEN
+
+
 def test_format_seconds_under_minute():
     assert _format_seconds(3.0) == "3s"
     assert _format_seconds(59.4) == "59s"
