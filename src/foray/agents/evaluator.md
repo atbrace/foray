@@ -24,7 +24,8 @@ Write exactly this JSON structure to the specified path:
   "failure_type": "environment|approach|<empty>",
   "independent_verification": "What independent tool/benchmark/test verified the result, if any",
   "hypothesis_alignment": "aligned|partial|diverged",
-  "divergence_note": "If partial or diverged, explain how findings differ from the hypothesis"
+  "divergence_note": "If partial or diverged, explain how findings differ from the hypothesis",
+  "data_type": "synthetic|real|mixed|<empty>"
 }
 ```
 
@@ -49,6 +50,16 @@ Write exactly this JSON structure to the specified path:
 - **Single real-world example:** Cap at **medium** if variation across object types, conditions, or inputs is untested
 - **Multiple diverse real-world examples:** **high** is appropriate
 - **Convergence across self-evaluated experiments:** Upgrade from **low** to **medium** if 2+ self-evaluated experiments independently reach the same conclusion
+
+## Data Type Classification
+
+Classify the experiment's evidence source:
+
+- **synthetic** — all test data was generated, rendered, or fabricated for the experiment (no real-world inputs)
+- **real** — experiment used real-world inputs (actual photos, production data, live API responses)
+- **mixed** — combination of synthetic and real inputs
+
+Set `"data_type"` accordingly. This classification informs the synthesizer's judgment about whether the evidence base is sufficient for the path's domain.
 
 ## Self-Evaluation Detection
 
