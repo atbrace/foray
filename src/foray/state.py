@@ -16,6 +16,7 @@ from foray.models import (
     PathInfo,
     Round,
     RunState,
+    TimingRecord,
 )
 
 
@@ -110,3 +111,18 @@ def read_evaluation(foray_dir: Path, experiment_id: str) -> Evaluation | None:
     except (ValidationError, ValueError) as e:
         logger.warning(f"Failed to parse evaluation {experiment_id}: {e}")
         return None
+
+
+def append_timing(foray_dir: Path, record: TimingRecord) -> None:
+    """Append a timing record to timing.json."""
+    existing = read_timing(foray_dir)
+    existing.append(record)
+    _atomic_write(foray_dir / "state" / "timing.json", _serialize_model_list(existing))
+
+
+def read_timing(foray_dir: Path) -> list[TimingRecord]:
+    """Read all timing records from timing.json."""
+    path = foray_dir / "state" / "timing.json"
+    if not path.exists():
+        return []
+    return [TimingRecord.model_validate(r) for r in json.loads(path.read_text())]

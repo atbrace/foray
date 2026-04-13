@@ -13,15 +13,18 @@ from foray.models import (
     RunConfig,
     RunState,
 )
+from foray.models import TimingRecord
 from foray.state import (
     _atomic_write,
     add_finding,
+    append_timing,
     init_directory,
     read_evaluation,
     read_findings,
     read_paths,
     read_rounds,
     read_run_state,
+    read_timing,
     write_evaluation,
     write_findings,
     write_paths,
@@ -152,3 +155,42 @@ def test_read_evaluation_malformed(tmp_path):
     (tmp_path / "experiments").mkdir()
     (tmp_path / "experiments" / "bad_eval.json").write_text("not valid json {{{")
     assert read_evaluation(tmp_path, "bad") is None
+
+
+def test_append_and_read_timing(tmp_path):
+    """Timing records can be appended and read back."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    record = TimingRecord(
+        experiment_id="r1-001", agent_type="planner",
+        elapsed_seconds=3.2, input_tokens=5000, output_tokens=1200, cost_usd=0.05,
+    )
+    append_timing(foray_dir, record)
+
+    records = read_timing(foray_dir)
+    assert len(records) == 1
+    assert records[0].experiment_id == "r1-001"
+    assert records[0].input_tokens == 5000
+
+
+def test_append_timing_multiple(tmp_path):
+    """Multiple timing records accumulate."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+
+    for i in range(3):
+        append_timing(foray_dir, TimingRecord(
+            experiment_id=f"r1-{i:03d}", agent_type="executor",
+            elapsed_seconds=float(i), input_tokens=i * 100, output_tokens=i * 50,
+        ))
+
+    records = read_timing(foray_dir)
+    assert len(records) == 3
+
+
+def test_read_timing_empty(tmp_path):
+    """Returns empty list when no timing file exists."""
+    state = RunState(start_time=datetime.now(timezone.utc), config=RunConfig(vision_path="v.md"))
+    foray_dir = init_directory(tmp_path, state)
+    assert read_timing(foray_dir) == []

@@ -167,3 +167,12 @@ class ExperimentResult(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     elapsed_seconds: float | None = None
+
+
+class TimingRecord(BaseModel):
+    experiment_id: str
+    agent_type: str
+    elapsed_seconds: float
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
