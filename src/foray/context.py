@@ -10,7 +10,7 @@ from foray.models import (
     RunState,
 )
 from foray.scheduler import detect_methodology_repetition
-from foray.state import read_evaluation, read_findings, read_paths
+from foray.state import read_evaluation, read_findings, read_paths, read_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ BUDGETS = {
     "planner": 30_000,
     "executor": 15_000,
     "evaluator": 20_000,
+    "strategist": 20_000,
     "synthesizer": 60_000,
 }
 
@@ -69,6 +70,10 @@ def build_planner_context(
             f"**Experiments so far:** {path.experiment_count}"
         ),
     ]
+
+    strategy = read_strategy(foray_dir)
+    if strategy and strategy.vision_assessment:
+        sections.append(f"\n## Vision Assessment\n{strategy.vision_assessment}")
 
     if path.discarded_hypotheses:
         sections.append("\n## Discarded Approaches (do NOT retry)")
@@ -368,4 +373,84 @@ def build_synthesizer_context(foray_dir: Path) -> str:
         context = "\n".join(sections_truncated)
         tokens = estimate_tokens(context)
         logger.info(f"Synthesizer context truncated to ~{tokens} tokens (budget: {BUDGETS['synthesizer']})")
+    return context
+
+
+def build_strategist_context(
+    foray_dir: Path,
+    run_state: RunState,
+    previous_assessment: str | None,
+) -> str:
+    """Strategist context: vision + all paths + findings + budget + previous assessment."""
+    vision = _read_file(foray_dir / "vision.md")
+    paths = read_paths(foray_dir)
+    findings = read_findings(foray_dir)
+
+    # Group findings by path
+    by_path: dict[str, list[Finding]] = {}
+    for f in findings:
+        by_path.setdefault(f.path_id, []).append(f)
+
+    sections = [f"# Vision\n\n{vision}"]
+
+    if previous_assessment:
+        sections.append(f"\n# Previous Vision Assessment\n\n{previous_assessment}")
+
+    # All paths with status and findings
+    sections.append("\n# Paths")
+    for p in paths:
+        icon = _STATUS_ICONS.get(p.status.value, "·")
+        sections.append(
+            f"\n## {icon} {p.id} ({p.status.value})\n"
+            f"**Description:** {p.description}\n"
+            f"**Priority:** {p.priority}\n"
+            f"**Hypothesis:** {p.hypothesis}\n"
+            f"**Experiments:** {p.experiment_count}"
+        )
+        if p.discarded_hypotheses:
+            sections.append(f"**Discarded approaches:** {'; '.join(p.discarded_hypotheses)}")
+
+        path_findings = by_path.get(p.id, [])
+        if path_findings:
+            recent = path_findings[-3:]
+            older = path_findings[:-3]
+            if older:
+                for f in older:
+                    sections.append(f"- {f.experiment_id}: [{f.status}] {f.one_liner}")
+            for f in recent:
+                brief = f.planner_brief if f.planner_brief else f.summary
+                sections.append(f"- {f.experiment_id}: [{f.status}] {brief}")
+
+    # Budget info
+    remaining_experiments = run_state.config.max_experiments - run_state.experiment_count
+    sections.append(
+        f"\n# Budget\n"
+        f"- Round: {run_state.current_round}\n"
+        f"- Experiments completed: {run_state.experiment_count}\n"
+        f"- Experiments remaining: {remaining_experiments}\n"
+        f"- Total budget: {run_state.config.max_experiments} experiments, "
+        f"{run_state.config.hours} hours"
+    )
+
+    context = "\n".join(sections)
+    tokens = estimate_tokens(context)
+    if tokens > BUDGETS["strategist"]:
+        # Truncate: reduce all findings to one-liners
+        sections_truncated = [f"# Vision\n\n{vision}"]
+        if previous_assessment:
+            sections_truncated.append(f"\n# Previous Vision Assessment\n\n{previous_assessment}")
+        sections_truncated.append("\n# Paths (summarized)")
+        for p in paths:
+            icon = _STATUS_ICONS.get(p.status.value, "·")
+            sections_truncated.append(f"- {icon} {p.id} ({p.status.value}, {p.experiment_count} exp, {p.priority}): {p.hypothesis}")
+            path_findings = by_path.get(p.id, [])
+            for f in path_findings:
+                sections_truncated.append(f"  - {f.experiment_id}: [{f.status}] {f.one_liner}")
+        sections_truncated.append(
+            f"\n# Budget\n- Round: {run_state.current_round}\n"
+            f"- Remaining: {remaining_experiments} experiments\n"
+            f"- Total: {run_state.config.max_experiments} experiments, {run_state.config.hours} hours"
+        )
+        context = "\n".join(sections_truncated)
+        logger.info(f"Strategist context truncated to ~{estimate_tokens(context)} tokens")
     return context

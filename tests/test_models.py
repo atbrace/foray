@@ -656,3 +656,102 @@ def test_path_info_discarded_hypotheses_roundtrip():
         "Approach A failed due to missing deps",
         "Method B diverged",
     ]
+
+
+# --- Strategist models ---
+
+
+def test_strategy_decision_close():
+    from foray.models import StrategyDecision, PathStatus
+    d = StrategyDecision(action="close", path_id="path-a", status=PathStatus.INCONCLUSIVE, reason="Not advancing vision")
+    assert d.action == "close"
+    assert d.path_id == "path-a"
+    assert d.status == PathStatus.INCONCLUSIVE
+    assert d.reason == "Not advancing vision"
+
+
+def test_strategy_decision_open():
+    from foray.models import StrategyDecision, PathInfo, Priority
+    new_path = PathInfo(id="path-new", description="New exploration", priority=Priority.HIGH, hypothesis="New hyp")
+    d = StrategyDecision(action="open", new_path=new_path)
+    assert d.action == "open"
+    assert d.new_path.id == "path-new"
+
+
+def test_strategy_decision_reprioritize():
+    from foray.models import StrategyDecision, Priority
+    d = StrategyDecision(action="reprioritize", path_id="path-b", priority=Priority.HIGH)
+    assert d.action == "reprioritize"
+    assert d.priority == Priority.HIGH
+
+
+def test_strategy_decision_defaults():
+    from foray.models import StrategyDecision
+    d = StrategyDecision(action="close")
+    assert d.path_id == ""
+    assert d.status is None
+    assert d.reason == ""
+    assert d.priority is None
+    assert d.new_path is None
+
+
+def test_strategy_output_basic():
+    from foray.models import StrategyOutput
+    s = StrategyOutput(vision_assessment="Good progress on path-a", rationale="Stay the course")
+    assert s.vision_assessment == "Good progress on path-a"
+    assert s.decisions == []
+    assert s.rationale == "Stay the course"
+
+
+def test_strategy_output_null_coercion():
+    """StrategyOutput extends _AgentOutput — null fields coerce to defaults."""
+    import json
+    from foray.models import StrategyOutput
+    raw = json.dumps({
+        "vision_assessment": "test",
+        "decisions": None,
+        "rationale": None,
+    })
+    s = StrategyOutput.model_validate_json(raw)
+    assert s.decisions == []
+    assert s.rationale == ""
+
+
+def test_strategy_output_with_decisions():
+    import json
+    from foray.models import StrategyOutput
+    raw = json.dumps({
+        "vision_assessment": "Path-a is stale",
+        "decisions": [
+            {"action": "close", "path_id": "path-a", "status": "inconclusive", "reason": "Not advancing"},
+            {"action": "open", "new_path": {
+                "id": "path-c", "description": "Fresh angle", "priority": "high", "hypothesis": "New hyp"
+            }},
+            {"action": "reprioritize", "path_id": "path-b", "priority": "high"},
+        ],
+        "rationale": "Pivoting to fresh approach",
+    })
+    s = StrategyOutput.model_validate_json(raw)
+    assert len(s.decisions) == 3
+    assert s.decisions[0].action == "close"
+    assert s.decisions[0].status == "inconclusive"
+    assert s.decisions[1].new_path.id == "path-c"
+    assert s.decisions[2].priority == "high"
+
+
+def test_strategy_output_roundtrip():
+    import json
+    from foray.models import StrategyOutput, StrategyDecision, PathStatus, Priority
+    s = StrategyOutput(
+        vision_assessment="test",
+        decisions=[
+            StrategyDecision(action="close", path_id="a", status=PathStatus.INCONCLUSIVE, reason="done"),
+            StrategyDecision(action="reprioritize", path_id="b", priority=Priority.LOW),
+        ],
+        rationale="reason",
+    )
+    raw = s.model_dump_json()
+    s2 = StrategyOutput.model_validate_json(raw)
+    assert s2.vision_assessment == "test"
+    assert len(s2.decisions) == 2
+    assert s2.decisions[0].status == PathStatus.INCONCLUSIVE

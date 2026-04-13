@@ -16,6 +16,7 @@ from foray.models import (
     PathInfo,
     Round,
     RunState,
+    StrategyOutput,
     TimingRecord,
 )
 
@@ -147,3 +148,18 @@ def read_timing(foray_dir: Path) -> list[TimingRecord]:
         for line in path.read_text().splitlines()
         if line.strip()
     ]
+
+
+def write_strategy(foray_dir: Path, strategy: StrategyOutput) -> None:
+    _atomic_write(foray_dir / "state" / "strategy.json", strategy.model_dump_json(indent=2))
+
+
+def read_strategy(foray_dir: Path) -> StrategyOutput | None:
+    path = foray_dir / "state" / "strategy.json"
+    if not path.exists():
+        return None
+    try:
+        return StrategyOutput.model_validate_json(path.read_text())
+    except (ValidationError, ValueError) as e:
+        logger.warning(f"Failed to parse strategy: {e}")
+        return None

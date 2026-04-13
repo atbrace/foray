@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -183,3 +183,18 @@ class TimingRecord(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+
+
+class StrategyDecision(BaseModel):
+    action: Literal["close", "open", "reprioritize"]
+    path_id: str = ""
+    status: PathStatus | None = None  # for "close": inconclusive or resolved
+    reason: str = ""
+    priority: Priority | None = None
+    new_path: PathInfo | None = None
+
+
+class StrategyOutput(_AgentOutput):
+    vision_assessment: str
+    decisions: list[StrategyDecision] = Field(default_factory=list)
+    rationale: str = ""

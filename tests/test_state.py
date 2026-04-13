@@ -272,3 +272,52 @@ def test_timing_json_migrated_to_jsonl(tmp_path):
     # Verify migration happened: jsonl exists, json removed
     assert (foray_dir / "state" / "timing.jsonl").exists()
     assert not old_path.exists()
+
+
+# --- Strategy persistence ---
+
+
+def test_write_and_read_strategy(tmp_path):
+    from foray.models import StrategyOutput, StrategyDecision
+    from foray.state import write_strategy, read_strategy
+    foray_dir = tmp_path
+    (foray_dir / "state").mkdir()
+
+    strategy = StrategyOutput(
+        vision_assessment="Good progress",
+        decisions=[StrategyDecision(action="close", path_id="a", reason="done")],
+        rationale="Staying focused",
+    )
+    write_strategy(foray_dir, strategy)
+    loaded = read_strategy(foray_dir)
+    assert loaded is not None
+    assert loaded.vision_assessment == "Good progress"
+    assert len(loaded.decisions) == 1
+    assert loaded.decisions[0].path_id == "a"
+
+
+def test_read_strategy_missing(tmp_path):
+    from foray.state import read_strategy
+    foray_dir = tmp_path
+    (foray_dir / "state").mkdir()
+    assert read_strategy(foray_dir) is None
+
+
+def test_read_strategy_malformed(tmp_path):
+    from foray.state import read_strategy
+    foray_dir = tmp_path
+    (foray_dir / "state").mkdir()
+    (foray_dir / "state" / "strategy.json").write_text("not json{{{")
+    assert read_strategy(foray_dir) is None
+
+
+def test_write_strategy_overwrites(tmp_path):
+    from foray.models import StrategyOutput
+    from foray.state import write_strategy, read_strategy
+    foray_dir = tmp_path
+    (foray_dir / "state").mkdir()
+
+    write_strategy(foray_dir, StrategyOutput(vision_assessment="first"))
+    write_strategy(foray_dir, StrategyOutput(vision_assessment="second"))
+    loaded = read_strategy(foray_dir)
+    assert loaded.vision_assessment == "second"

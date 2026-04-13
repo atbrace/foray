@@ -620,3 +620,120 @@ def test_planner_context_omits_discarded_when_empty(tmp_path: Path):
 
     ctx = build_planner_context(tmp_path, path, [], _state(), needs_justification=False)
     assert "Discarded Approaches" not in ctx
+
+
+# --- Strategist context ---
+
+
+def test_strategist_context_includes_vision(tmp_path: Path):
+    from foray.context import build_strategist_context
+    from foray.models import StrategyOutput
+    (tmp_path / "vision.md").write_text("Explore testing patterns")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "paths.json").write_text("[]")
+    (tmp_path / "state" / "findings.json").write_text("[]")
+    (tmp_path / "experiments").mkdir()
+
+    ctx = build_strategist_context(tmp_path, _state(), previous_assessment=None)
+    assert "Explore testing patterns" in ctx
+
+
+def test_strategist_context_includes_all_paths(tmp_path: Path):
+    from foray.context import build_strategist_context
+    from foray.state import write_paths, write_findings
+    (tmp_path / "vision.md").write_text("Vision")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "experiments").mkdir()
+
+    paths = [_path("path-a"), _path("path-b")]
+    write_paths(tmp_path, paths)
+    write_findings(tmp_path, [])
+
+    ctx = build_strategist_context(tmp_path, _state(), previous_assessment=None)
+    assert "path-a" in ctx
+    assert "path-b" in ctx
+
+
+def test_strategist_context_includes_findings_by_path(tmp_path: Path):
+    from foray.context import build_strategist_context
+    from foray.state import write_paths, write_findings
+    (tmp_path / "vision.md").write_text("Vision")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "experiments").mkdir()
+
+    write_paths(tmp_path, [_path("path-a")])
+    write_findings(tmp_path, [
+        _finding("001", "path-a"),
+        _finding("002", "path-a"),
+    ])
+
+    ctx = build_strategist_context(tmp_path, _state(), previous_assessment=None)
+    assert "001" in ctx
+    assert "002" in ctx
+
+
+def test_strategist_context_includes_previous_assessment(tmp_path: Path):
+    from foray.context import build_strategist_context
+    (tmp_path / "vision.md").write_text("Vision")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "paths.json").write_text("[]")
+    (tmp_path / "state" / "findings.json").write_text("[]")
+    (tmp_path / "experiments").mkdir()
+
+    ctx = build_strategist_context(
+        tmp_path, _state(),
+        previous_assessment="Path-a is going deep but not advancing the core question",
+    )
+    assert "Path-a is going deep but not advancing the core question" in ctx
+
+
+def test_strategist_context_no_previous_assessment(tmp_path: Path):
+    from foray.context import build_strategist_context
+    (tmp_path / "vision.md").write_text("Vision")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "paths.json").write_text("[]")
+    (tmp_path / "state" / "findings.json").write_text("[]")
+    (tmp_path / "experiments").mkdir()
+
+    ctx = build_strategist_context(tmp_path, _state(), previous_assessment=None)
+    assert "Previous Vision Assessment" not in ctx
+
+
+def test_strategist_context_includes_budget(tmp_path: Path):
+    from foray.context import build_strategist_context
+    (tmp_path / "vision.md").write_text("Vision")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "paths.json").write_text("[]")
+    (tmp_path / "state" / "findings.json").write_text("[]")
+    (tmp_path / "experiments").mkdir()
+
+    ctx = build_strategist_context(tmp_path, _state(), previous_assessment=None)
+    assert "50 experiments" in ctx  # from default RunConfig.max_experiments
+    assert "8.0 hours" in ctx  # from default RunConfig.hours
+
+
+# --- Planner vision assessment injection ---
+
+
+def test_planner_includes_vision_assessment(tmp_path: Path):
+    from foray.state import write_strategy
+    from foray.models import StrategyOutput
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "state").mkdir()
+
+    write_strategy(tmp_path, StrategyOutput(
+        vision_assessment="Path-a is central to the vision, keep pushing",
+    ))
+
+    ctx = build_planner_context(tmp_path, _path(), [], _state(), needs_justification=False)
+    assert "Path-a is central to the vision, keep pushing" in ctx
+
+
+def test_planner_no_vision_assessment_when_no_strategy(tmp_path: Path):
+    (tmp_path / "vision.md").write_text("Test vision")
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "state").mkdir()
+
+    ctx = build_planner_context(tmp_path, _path(), [], _state(), needs_justification=False)
+    assert "Vision Assessment" not in ctx

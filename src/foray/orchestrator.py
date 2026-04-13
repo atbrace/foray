@@ -15,6 +15,7 @@ from foray.context import (
     build_exhaustion_evaluator_context,
     build_executor_context,
     build_planner_context,
+    build_strategist_context,
     build_synthesizer_context,
 )
 from foray.dispatcher import (
@@ -39,6 +40,7 @@ from foray.models import (
     RoundOutcome,
     RunConfig,
     RunState,
+    StrategyOutput,
     TimingRecord,
 )
 from foray.permissions import resolve_tools
@@ -59,6 +61,7 @@ from foray.state import (
     read_paths,
     read_rounds,
     read_run_state,
+    read_strategy,
     read_timing,
     write_paths,
     write_rounds,
@@ -407,6 +410,9 @@ class Orchestrator:
                 rounds.append(current_round)
                 write_rounds(self.foray_dir, rounds)
                 logger.info(f"Round {round_num} complete: {len(round_paths)} experiments")
+
+                # Phase 3: Strategic review
+                self._run_strategist(round_num)
         finally:
             self._run_synthesis()
 
@@ -700,6 +706,81 @@ class Orchestrator:
         write_run_state(self.foray_dir, state)
 
         return updated_path
+
+    def _apply_strategy(self, strategy: StrategyOutput) -> None:
+        """Apply strategist decisions to paths. Respects evaluator-resolved paths."""
+        paths = read_paths(self.foray_dir)
+
+        for decision in strategy.decisions:
+            if decision.action == "close":
+                for i, p in enumerate(paths):
+                    if p.id == decision.path_id:
+                        if p.status == PathStatus.RESOLVED:
+                            logger.info(f"Strategist: skipping close of '{p.id}' -- already resolved by evaluator")
+                        else:
+                            status = decision.status or PathStatus.INCONCLUSIVE
+                            paths[i] = p.model_copy(update={"status": status})
+                            _log(f"  Strategist: closed {p.id} ({status.value}) — {decision.reason}")
+                        break
+
+            elif decision.action == "open" and decision.new_path:
+                new = decision.new_path.model_copy(update={"status": PathStatus.OPEN, "experiment_count": 0})
+                paths.append(new)
+                _log(f"  Strategist: opened {new.id} ({new.priority}) — {new.description[:60]}")
+
+            elif decision.action == "reprioritize" and decision.priority:
+                for i, p in enumerate(paths):
+                    if p.id == decision.path_id:
+                        paths[i] = p.model_copy(update={"priority": decision.priority})
+                        _log(f"  Strategist: reprioritized {p.id} → {decision.priority}")
+                        break
+
+        write_paths(self.foray_dir, paths)
+
+    def _run_strategist(self, round_num: int) -> None:
+        """Dispatch strategist agent after a round completes."""
+        if round_num <= 1:
+            return
+
+        state = read_run_state(self.foray_dir)
+        remaining = state.config.max_experiments - state.experiment_count
+        if remaining <= 1:
+            return
+        paths = read_paths(self.foray_dir)
+        if not any(p.status == PathStatus.OPEN for p in paths):
+            return
+
+        _log("  Strategist reviewing vision progress...", self._run_start)
+        template = self._load_agent_prompt("strategist")
+
+        previous = read_strategy(self.foray_dir)
+        previous_assessment = previous.vision_assessment if previous else None
+
+        ctx = build_strategist_context(self.foray_dir, state, previous_assessment)
+        strategy_path = self.foray_dir / "state" / "strategy.json"
+
+        result = dispatch(
+            prompt=(
+                f"{template}\n\n---\n\n{ctx}\n\n---\n\n"
+                f"Write strategy JSON to: {strategy_path}"
+            ),
+            workdir=self.project_root,
+            model=self.config.evaluator_model,
+            max_turns=6,
+            tools=["Read", "Write"],
+            output_format="stream-json",
+        )
+        self._record_dispatch(result, f"round-{round_num}", "strategist")
+
+        strategy = read_strategy(self.foray_dir)
+        if strategy:
+            if strategy.decisions:
+                _log(f"  Strategist: {len(strategy.decisions)} decision(s)", self._run_start)
+                self._apply_strategy(strategy)
+            else:
+                _log("  Strategist: stay the course", self._run_start)
+        else:
+            logger.warning(f"Strategist failed to produce output (exit={result.exit_code})")
 
     def _format_timing_stats(self) -> str:
         """Format aggregate timing stats from persisted timing records."""

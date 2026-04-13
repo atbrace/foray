@@ -1055,3 +1055,181 @@ def test_apply_result_uses_summary_when_no_divergence_note(tmp_path):
     from foray.state import read_paths as rp
     updated = next(p for p in rp(foray_dir) if p.id == "a")
     assert "Dependency X not available in this environment" in updated.discarded_hypotheses
+
+
+# --- Strategist integration ---
+
+
+def test_apply_strategy_close_path(tmp_path):
+    """_apply_strategy closes paths as directed by strategist."""
+    from foray.models import StrategyOutput, StrategyDecision
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h", status=PathStatus.OPEN),
+        PathInfo(id="b", description="test2", priority=Priority.MEDIUM, hypothesis="h2", status=PathStatus.OPEN),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    strategy = StrategyOutput(
+        vision_assessment="Path a is not advancing vision",
+        decisions=[StrategyDecision(action="close", path_id="a", status=PathStatus.INCONCLUSIVE, reason="stale")],
+    )
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert paths[0].id == "a"
+    assert paths[0].status == PathStatus.INCONCLUSIVE
+    assert paths[1].status == PathStatus.OPEN
+
+
+def test_apply_strategy_open_path(tmp_path):
+    """_apply_strategy adds new paths."""
+    from foray.models import StrategyOutput, StrategyDecision
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h"),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    new_path = PathInfo(id="new-path", description="Fresh angle", priority=Priority.HIGH, hypothesis="new hyp")
+    strategy = StrategyOutput(
+        vision_assessment="Need new direction",
+        decisions=[StrategyDecision(action="open", new_path=new_path)],
+    )
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert len(paths) == 2
+    assert paths[1].id == "new-path"
+    assert paths[1].status == PathStatus.OPEN
+
+
+def test_apply_strategy_reprioritize(tmp_path):
+    """_apply_strategy changes path priority."""
+    from foray.models import StrategyOutput, StrategyDecision
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.LOW, hypothesis="h"),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    strategy = StrategyOutput(
+        vision_assessment="a is now critical",
+        decisions=[StrategyDecision(action="reprioritize", path_id="a", priority=Priority.HIGH)],
+    )
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert paths[0].priority == Priority.HIGH
+
+
+def test_apply_strategy_skips_resolved_paths(tmp_path):
+    """_apply_strategy refuses to close evaluator-resolved paths."""
+    from foray.models import StrategyOutput, StrategyDecision
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h", status=PathStatus.RESOLVED),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    strategy = StrategyOutput(
+        vision_assessment="ignore",
+        decisions=[StrategyDecision(action="close", path_id="a", status=PathStatus.INCONCLUSIVE, reason="stale")],
+    )
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert paths[0].status == PathStatus.RESOLVED  # unchanged
+
+
+def test_apply_strategy_no_decisions(tmp_path):
+    """_apply_strategy with empty decisions is a no-op on paths."""
+    from foray.models import StrategyOutput
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h"),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    strategy = StrategyOutput(vision_assessment="All good, stay the course")
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert len(paths) == 1
+    assert paths[0].status == PathStatus.OPEN
+
+
+def test_apply_strategy_multiple_decisions(tmp_path):
+    """_apply_strategy applies multiple decisions in sequence."""
+    from foray.models import StrategyOutput, StrategyDecision
+    config = RunConfig(vision_path="vision.md")
+    state = RunState(start_time=datetime.now(timezone.utc), config=config)
+    foray_dir = init_directory(tmp_path, state)
+
+    from foray.state import write_paths, read_paths
+    write_paths(foray_dir, [
+        PathInfo(id="a", description="test", priority=Priority.HIGH, hypothesis="h", status=PathStatus.OPEN),
+        PathInfo(id="b", description="test2", priority=Priority.LOW, hypothesis="h2", status=PathStatus.OPEN),
+    ])
+
+    orch = Orchestrator(tmp_path, config)
+    orch.foray_dir = foray_dir
+
+    new_path = PathInfo(id="c", description="new", priority=Priority.HIGH, hypothesis="h3")
+    strategy = StrategyOutput(
+        vision_assessment="Pivoting",
+        decisions=[
+            StrategyDecision(action="close", path_id="a", status=PathStatus.INCONCLUSIVE, reason="stale"),
+            StrategyDecision(action="reprioritize", path_id="b", priority=Priority.HIGH),
+            StrategyDecision(action="open", new_path=new_path),
+        ],
+    )
+    orch._apply_strategy(strategy)
+
+    paths = read_paths(foray_dir)
+    assert len(paths) == 3
+    assert paths[0].status == PathStatus.INCONCLUSIVE
+    assert paths[1].priority == Priority.HIGH
+    assert paths[2].id == "c"
+
+
+def test_strategist_skips_round_1():
+    """_run_strategist is a no-op on round 1."""
+    from pathlib import Path
+    config = RunConfig(vision_path="vision.md")
+    orch = Orchestrator(Path("/tmp/fake"), config)
+    orch.foray_dir = Path("/tmp/fake/.foray")
+    orch._run_start = 0.0
+
+    # Should not dispatch — if it tries, it'll crash on missing files
+    orch._run_strategist(1)  # no error = skipped
