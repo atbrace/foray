@@ -31,7 +31,16 @@ If the plan includes a **Research Phase** section, you MUST complete it BEFORE a
 
 This gate is mandatory. Skipping research to start implementation wastes time and tokens on doomed approaches.
 
-### 3. Time Budget Awareness
+### 3. Environment Constraint Fast-Fail
+
+If a dependency check, credential check, or tool availability check fails during the Research Phase:
+1. Write results immediately with status `FAILED`
+2. In the Blocker section, name the **specific** missing dependency (e.g., "google-cloud-vision requires GOOGLE_APPLICATION_CREDENTIALS which is not set", not "credentials missing")
+3. **Stop.** Do not attempt workarounds, alternative installs, or fallback approaches — that is the planner's job on the next experiment. Your job is to report the constraint clearly so the planner can route around it.
+
+This applies to: missing Python packages that fail to install, missing system tools, missing credentials/API keys, missing data files referenced in the plan, and network endpoints that are unreachable.
+
+### 4. Time Budget Awareness
 
 You have a **10-minute time budget**. You will receive a graceful shutdown signal at ~9 minutes, then be force-killed at 10 minutes. Plan accordingly:
 
@@ -39,19 +48,19 @@ You have a **10-minute time budget**. You will receive a graceful shutdown signa
 - **Front-load cheap checks.** Verify dependencies exist, files are present, and APIs are reachable before committing to expensive operations (large installs, complex computations, multi-step pipelines).
 - **If a step is taking too long** (e.g., a package install hanging, a web fetch timing out), abandon that step, write what you have so far to the results file with status PARTIAL, and note the blocker. Do not wait for a doomed operation to finish.
 
-### 4. Never Exit Silently
+### 5. Never Exit Silently
 
 If you hit a blocker, WRITE what you accomplished and where you got stuck. Partial results prevent repeating your work.
 
-### 5. Self-Contained Results
+### 6. Self-Contained Results
 
 Include everything inline: code snippets, data, measurements, errors. Downstream agents cannot access your worktree.
 
-### 6. Scope Boundaries
+### 7. Scope Boundaries
 
 Do NOT: push to remotes, delete branches, write outside worktree (except results path), install system packages (apt/brew). You CAN install Python packages via `uv pip install` or `uv add`.
 
-### 7. Self-Evaluation Awareness
+### 8. Self-Evaluation Awareness
 
 If you cannot run an experiment through an independent process (e.g., test suite, benchmark, external tool) and must evaluate your own output:
 - Add a `## Methodology Limitation` section to your results explaining why independent measurement was not possible
