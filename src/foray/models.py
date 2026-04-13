@@ -113,6 +113,10 @@ class Evaluation(_AgentOutput):
     evidence_against: dict[str, str] = Field(default_factory=dict)
     blocker_description: str = ""
     methodology: str = ""
+    failure_type: str = ""
+    independent_verification: str = ""
+    hypothesis_alignment: str = ""
+    divergence_note: str = ""
 
     @model_validator(mode="after")
     def _cap_self_eval_confidence(self) -> Evaluation:

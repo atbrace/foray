@@ -403,3 +403,97 @@ def test_experiment_result_timing_fields():
     )
     assert result.started_at == now
     assert result.elapsed_seconds == 42.5
+
+
+# --- Evaluation new fields (foray-bdl, foray-ejn, foray-dj1) ---
+
+
+def test_evaluation_failure_type_default():
+    """failure_type defaults to empty string when not provided."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.failure_type == ""
+
+
+def test_evaluation_failure_type_null_coercion():
+    """failure_type: null coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "open", "confidence": "high", "summary": "Test",
+        "failure_type": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.failure_type == ""
+
+
+def test_evaluation_failure_type_roundtrip():
+    """failure_type: 'environment' round-trips correctly."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.BLOCKED, confidence=Confidence.LOW,
+        summary="Missing creds", failure_type="environment",
+    )
+    restored = Evaluation.model_validate_json(ev.model_dump_json())
+    assert restored.failure_type == "environment"
+
+
+def test_evaluation_independent_verification_default():
+    """independent_verification defaults to empty string."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.RESOLVED, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.independent_verification == ""
+
+
+def test_evaluation_independent_verification_null_coercion():
+    """independent_verification: null coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "resolved", "confidence": "high", "summary": "Test",
+        "independent_verification": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.independent_verification == ""
+
+
+def test_evaluation_hypothesis_alignment_default():
+    """hypothesis_alignment defaults to empty string."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.hypothesis_alignment == ""
+
+
+def test_evaluation_hypothesis_alignment_null_coercion():
+    """hypothesis_alignment: null coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "open", "confidence": "high", "summary": "Test",
+        "hypothesis_alignment": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.hypothesis_alignment == ""
+
+
+def test_evaluation_divergence_note_default():
+    """divergence_note defaults to empty string."""
+    ev = Evaluation(
+        experiment_id="001", path_id="test", outcome="conclusive",
+        path_status=PathStatus.OPEN, confidence=Confidence.HIGH, summary="Test",
+    )
+    assert ev.divergence_note == ""
+
+
+def test_evaluation_divergence_note_null_coercion():
+    """divergence_note: null coerces to empty string."""
+    raw_json = json.dumps({
+        "experiment_id": "001", "path_id": "test", "outcome": "conclusive",
+        "path_status": "open", "confidence": "high", "summary": "Test",
+        "divergence_note": None,
+    })
+    ev = Evaluation.model_validate_json(raw_json)
+    assert ev.divergence_note == ""
