@@ -114,7 +114,9 @@ def apply_guardrails(
 ) -> PathStatus:
     """Apply deterministic guardrails to assessor's status recommendation.
 
-    - Resolved requires 2+ non-failure experiments and at least medium confidence.
+    - Resolved requires 2+ non-failure experiments and at least medium confidence,
+      UNLESS 1 experiment has independent methodology with cited verification.
+    - Diverged hypothesis blocks resolution.
     - Blocked requires a non-empty blocker description.
     - When exp_status is EXHAUSTED, rejected recommendations fall to INCONCLUSIVE
       instead of OPEN to prevent infinite loops.
@@ -126,12 +128,28 @@ def apply_guardrails(
     )
 
     if recommended == PathStatus.RESOLVED:
+        # Diverged hypothesis blocks resolution regardless of experiment count
+        if assessment.hypothesis_alignment == "diverged":
+            logger.info(
+                f"Guardrail: rejecting resolution of '{path.id}' "
+                f"-- hypothesis diverged: {assessment.divergence_note}"
+            )
+            return fallback
+
         non_failures = sum(
             1 for f in findings
             if f.path_id == path.id
             and f.status in (ExperimentStatus.SUCCESS, ExperimentStatus.PARTIAL)
         )
-        if non_failures < 2:
+
+        # Single-experiment override: independent methodology with cited verification
+        has_independent_override = (
+            non_failures == 1
+            and assessment.methodology == "independent"
+            and assessment.independent_verification
+        )
+
+        if non_failures < 2 and not has_independent_override:
             logger.info(
                 f"Guardrail: rejecting resolution of '{path.id}' "
                 f"-- only {non_failures} non-failure experiment(s)"

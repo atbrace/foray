@@ -28,11 +28,20 @@ def _assessment(
     path_status: PathStatus = PathStatus.RESOLVED,
     confidence: Confidence = Confidence.HIGH,
     blocker: str = "",
+    methodology: str = "",
+    independent_verification: str = "",
+    hypothesis_alignment: str = "",
+    divergence_note: str = "",
+    failure_type: str = "",
 ) -> Evaluation:
     return Evaluation(
         experiment_id="001", path_id=path_id, outcome="conclusive",
         path_status=path_status, confidence=confidence, summary="done",
-        blocker_description=blocker,
+        blocker_description=blocker, methodology=methodology,
+        independent_verification=independent_verification,
+        hypothesis_alignment=hypothesis_alignment,
+        divergence_note=divergence_note,
+        failure_type=failure_type,
     )
 
 
@@ -155,6 +164,102 @@ def test_non_exhausted_rejected_resolved_stays_open():
         _assessment(path_status=PathStatus.RESOLVED), _path(), findings,
         exp_status=ExperimentStatus.SUCCESS,
     ) == PathStatus.OPEN
+
+
+# --- Single-experiment resolution override (foray-ejn) ---
+
+
+def test_single_experiment_resolved_with_independent_verification():
+    """1 experiment + independent methodology + verification evidence -> RESOLVED."""
+    findings = [_finding("001", "a")]
+    a = _assessment(
+        methodology="independent",
+        independent_verification="trimesh exact-match comparison returned 0 delta",
+    )
+    assert apply_guardrails(a, _path(), findings) == PathStatus.RESOLVED
+
+
+def test_single_experiment_rejected_without_verification_evidence():
+    """1 experiment + independent methodology but empty verification -> OPEN."""
+    findings = [_finding("001", "a")]
+    a = _assessment(methodology="independent", independent_verification="")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+def test_single_experiment_rejected_with_self_evaluated():
+    """1 experiment + self-evaluated methodology -> OPEN (no override)."""
+    findings = [_finding("001", "a")]
+    a = _assessment(
+        methodology="self-evaluated",
+        independent_verification="I checked it myself",
+        confidence=Confidence.MEDIUM,
+    )
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+def test_single_experiment_rejected_low_confidence_even_with_verification():
+    """1 experiment + independent + verification but LOW confidence -> OPEN."""
+    findings = [_finding("001", "a")]
+    a = _assessment(
+        confidence=Confidence.LOW,
+        methodology="independent",
+        independent_verification="test suite passed",
+    )
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+# --- Hypothesis divergence guardrail (foray-dj1) ---
+
+
+def test_diverged_hypothesis_blocks_resolution():
+    """hypothesis_alignment='diverged' + RESOLVED -> OPEN."""
+    findings = [_finding("001", "a"), _finding("002", "a")]
+    a = _assessment(hypothesis_alignment="diverged", divergence_note="Answered wrong question")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.OPEN
+
+
+def test_diverged_hypothesis_falls_to_inconclusive_when_exhausted():
+    """hypothesis_alignment='diverged' + RESOLVED + EXHAUSTED -> INCONCLUSIVE."""
+    findings = [
+        _finding("001", "a"),
+        _finding("002", "a"),
+        _finding("003", "a", ExperimentStatus.EXHAUSTED),
+    ]
+    a = _assessment(hypothesis_alignment="diverged")
+    assert apply_guardrails(a, _path(), findings, exp_status=ExperimentStatus.EXHAUSTED) == PathStatus.INCONCLUSIVE
+
+
+def test_aligned_hypothesis_allows_resolution():
+    """hypothesis_alignment='aligned' + RESOLVED + 2 experiments -> RESOLVED."""
+    findings = [_finding("001", "a"), _finding("002", "a")]
+    a = _assessment(hypothesis_alignment="aligned")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.RESOLVED
+
+
+def test_partial_alignment_allows_resolution():
+    """hypothesis_alignment='partial' should not block resolution."""
+    findings = [_finding("001", "a"), _finding("002", "a")]
+    a = _assessment(hypothesis_alignment="partial")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.RESOLVED
+
+
+def test_empty_alignment_allows_resolution():
+    """Empty hypothesis_alignment (backwards compat) should not block resolution."""
+    findings = [_finding("001", "a"), _finding("002", "a")]
+    a = _assessment(hypothesis_alignment="")
+    assert apply_guardrails(a, _path(), findings) == PathStatus.RESOLVED
+
+
+def test_diverged_does_not_block_non_resolved_statuses():
+    """hypothesis_alignment='diverged' only blocks RESOLVED, not OPEN/BLOCKED/INCONCLUSIVE."""
+    a = _assessment(path_status=PathStatus.OPEN, hypothesis_alignment="diverged")
+    assert apply_guardrails(a, _path(), []) == PathStatus.OPEN
+
+    a = _assessment(
+        path_status=PathStatus.BLOCKED, hypothesis_alignment="diverged",
+        blocker="env issue",
+    )
+    assert apply_guardrails(a, _path(), []) == PathStatus.BLOCKED
 
 
 # --- Evaluator failure diagnostics (GH-18) ---
