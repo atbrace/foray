@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "foray",
+  "project_id": "cd0bdfe6-49b3-4fda-8e1e-efad3274c4d5"
+}

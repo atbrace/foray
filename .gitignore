@@ -10,3 +10,8 @@ build/
 CLAUDE.md
 2026-04-10-foray-v3-design.md
 docs/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
