@@ -103,7 +103,7 @@ class Evaluation(_AgentOutput):
     experiment_id: str
     path_id: str
     outcome: str
-    path_status: PathStatus
+    path_status: PathStatus = PathStatus.OPEN
     confidence: Confidence
     topic_tags: list[str] = Field(default_factory=list)
     summary: str

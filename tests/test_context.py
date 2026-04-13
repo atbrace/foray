@@ -148,6 +148,20 @@ def test_planner_brief_on_evaluation_model():
     assert evaluation.planner_brief == "Tested grep-based search. Found 12 matches. No blockers."
 
 
+def test_evaluation_missing_path_status_defaults_to_open():
+    """Evaluator may omit path_status — should default to OPEN, not crash."""
+    eval_json = json.dumps({
+        "experiment_id": "011",
+        "path_id": "path-a",
+        "outcome": "conclusive",
+        "confidence": "medium",
+        "summary": "Found evidence",
+        "data_type": "synthetic",
+    })
+    evaluation = Evaluation.model_validate_json(eval_json)
+    assert evaluation.path_status == "open"
+
+
 def test_planner_brief_null_coercion():
     """planner_brief should coerce null to empty string (agent output defense)."""
     eval_json = json.dumps({
