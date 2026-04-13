@@ -13,7 +13,8 @@ Foray is for questions that need empirical answers -- where you have hypotheses 
 1. **You provide a vision** -- a question or document describing what you want to explore
 2. **Foray identifies exploration paths** -- independent questions worth investigating
 3. **For each path, agents run experiments** -- plan, execute in an isolated worktree, evaluate results (experiments run in parallel, up to `--max-concurrent`)
-4. **A synthesis report** ties everything together when the budget runs out
+4. **A strategist reviews progress** after each round -- closing dead-end paths, opening new ones based on what's been learned, and reprioritizing based on the vision
+5. **A synthesis report** ties everything together when the budget runs out
 
 ```mermaid
 flowchart TD
@@ -28,17 +29,20 @@ flowchart TD
         C --> C1["Plan > Execute > Evaluate"]
     end
 
-    B1 -. "resolved" .-> Synth
-    A1 -- "open" --> A2
-    C1 -- "open" --> C2
+    B1 -. "resolved" .-> S1
+    A1 -- "open" --> S1
+    C1 -- "open" --> S1
+
+    S1["Strategist"] -- "stay the course" --> A2
+    S1 -- "close path C, open path D" --> D2
 
     subgraph R2 ["Round 2"]
         A2["Plan > Execute > Evaluate"]
-        C2["Plan > Execute > Evaluate"]
+        D2["Plan > Execute > Evaluate"]
     end
 
     A2 -. "resolved" .-> Synth
-    C2 -. "blocked" .-> Synth
+    D2 -- "open" --> Synth
 
     Synth["Synthesizer"] --> Report["Report"]
 ```
@@ -109,12 +113,13 @@ foray resume
 | `--hours` | 8.0 | Time budget |
 | `--max-experiments` | 50 | Experiment cap |
 | `--model` | claude-sonnet-4-6 | Model for most agents |
-| `--evaluator-model` | claude-opus-4-6 | Model for evaluator (higher reasoning) |
+| `--evaluator-model` | claude-opus-4-6 | Model for evaluator and strategist |
 | `--max-turns` | 30 | Max tool-use turns per agent |
 | `--max-concurrent` | 3 | Max parallel experiments per round |
 | `--output` | `.foray/` | Output directory |
 | `--allow` | | Additional tools to enable (repeatable) |
 | `--deny` | | Tools to disable (repeatable) |
+| `-y`, `--yes` | | Skip interactive path approval |
 
 ### Vision Documents
 
@@ -148,19 +153,23 @@ I'd like to know:
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | Initializer | Sonnet | Scans codebase, reads vision, identifies 2-5 exploration paths |
-| Planner | Sonnet | Designs a specific experiment for a path |
+| Planner | Sonnet | Designs a specific experiment for a path (can signal exhaustion when no viable experiments remain) |
 | Executor | Sonnet | Runs the experiment in an isolated worktree |
-| Evaluator | **Opus** | Assesses results, recommends path status, rates confidence |
+| Evaluator | **Opus** | Assesses results, tracks hypothesis alignment, rates confidence |
+| Strategist | **Opus** | Reviews all paths after each round, steers the run toward the vision |
 | Synthesizer | Sonnet | Produces final report from all findings |
 
-The evaluator uses Opus by default because its judgment calls steer the entire run -- bad evaluations waste budget on dead ends or prematurely close promising paths.
+The evaluator and strategist use Opus by default because their judgment calls steer the entire run -- bad evaluations waste budget on dead ends, and poor strategic decisions cause path thrashing.
 
-### Safety
+### Safety and Guardrails
 
 - Experiments run in detached-HEAD git worktrees
 - A git wrapper intercepts and blocks `push`, `branch -D`, and `remote remove`
 - Git integrity checks verify HEAD and branches haven't changed after each experiment
-- The orchestrator applies deterministic guardrails on top of evaluator recommendations (e.g., requires 2+ successful experiments before resolving a path)
+- Deterministic guardrails override evaluator recommendations: resolution requires 2+ successful experiments and at least medium confidence, diverged hypotheses block resolution
+- Circuit breakers halt the run after 3 consecutive failures or escalate paths with repeated environment failures to inconclusive
+- Methodology repetition detection warns the planner when the last 3 experiments share >70% of their approach tags
+- The strategist cannot reopen paths that the evaluator has resolved -- evidence-backed conclusions are respected
 
 ## Development
 
